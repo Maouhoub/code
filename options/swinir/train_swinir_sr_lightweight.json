@@ -17,8 +17,8 @@
     "train": {
       "name": "train_dataset"           // just name
       , "dataset_type": "sr"         // "dncnn" | "dnpatch" | "fdncnn" | "ffdnet" | "sr" | "srmd" | "dpsr" | "plain" | "plainpatch" | "jpeg"
-      , "dataroot_H": "/kaggle/input/project/trainsets/trainsets/trainH"// path of H training dataset. DIV2K (800 training images)
-      , "dataroot_L": "/kaggle/input/project/trainsets/trainsets/trainL"              // path of L training dataset
+      , "dataroot_H": "/kaggle/input/srdata/trainsets/trainH"// path of H training dataset. DIV2K (800 training images)
+      , "dataroot_L": "/kaggle/input/srdata/trainsets/trainL"              // path of L training dataset
 
       , "H_size": 128                   // 128/192/256/512.
 
@@ -29,8 +29,8 @@
     , "test": {
       "name": "test_dataset"            // just name
       , "dataset_type": "sr"         // "dncnn" | "dnpatch" | "fdncnn" | "ffdnet" | "sr" | "srmd" | "dpsr" | "plain" | "plainpatch" | "jpeg"
-      , "dataroot_H": "/kaggle/input/project/testsets/testsets/Set5/original"  // path of H testing dataset
-      , "dataroot_L": "/kaggle/input/project/testsets/testsets/Set5/LRbicx2"              // path of L testing dataset
+      , "dataroot_H": "/kaggle/input/srdata/testsets/Set5/original"  // path of H testing dataset
+      , "dataroot_L": "/kaggle/input/srdata/testsets/Set5/LRbicx2"              // path of L testing dataset
 
     }
   }
