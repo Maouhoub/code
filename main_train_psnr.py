@@ -16,6 +16,8 @@ from utils.utils_dist import get_dist_info, init_dist
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
 
+import time
+from torch.profiler import profile, record_function, ProfilerActivity, tensorboard_trace_handler
 
 '''
 # --------------------------------------------
@@ -152,6 +154,38 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     model = define_Model(opt)
     model.init_train()
+
+    # ----------------------------------------
+    # Add attention profiling hooks
+    # ----------------------------------------
+    attention_metrics = {}
+    
+    def forward_pre_hook(module, input):
+        module_key = id(module)
+        if module_key not in attention_metrics:
+            attention_metrics[module_key] = {
+                'total_time': 0.0,
+                'count': 0,
+                'name': type(module).__name__
+            }
+        attention_metrics[module_key]['start_time'] = time.time()
+    
+    def forward_post_hook(module, input, output):
+        module_key = id(module)
+        end_time = time.time()
+        if 'start_time' in attention_metrics[module_key]:
+            duration = end_time - attention_metrics[module_key]['start_time']
+            attention_metrics[module_key]['total_time'] += duration
+            attention_metrics[module_key]['count'] += 1
+        attention_metrics[module_key]['mem_alloc'] = torch.cuda.memory_allocated()
+        attention_metrics[module_key]['mem_cached'] = torch.cuda.memory_reserved()
+    
+    # Attach hooks to attention layers
+    for name, module in model.named_modules():
+        if "attn" in name.lower():  # Adjust based on your actual attention layer names
+            module.register_forward_pre_hook(forward_pre_hook)
+            module.register_forward_hook(forward_post_hook)
+    
     if opt['rank'] == 0:
         logger.info(model.info_network())
         logger.info(model.info_params())
@@ -161,7 +195,20 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # Step--4 (main training)
     # ----------------------------------------
     '''
-
+    # ----------------------------------------
+# Initialize profiler
+# ----------------------------------------
+prof = None
+if opt['rank'] == 0:
+    prof = profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+        on_trace_ready=tensorboard_trace_handler('./logs/profile'),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True
+    )
+    prof.start()
     for epoch in range(1000000):  # keep running
         if opt['dist']:
             train_sampler.set_epoch(epoch + seed)
