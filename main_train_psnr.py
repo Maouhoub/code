@@ -170,6 +170,8 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
             current_step += 1
 
+            print("current step : ", current_step)
+
             # -------------------------------
             # 1) update learning rate
             # -------------------------------
@@ -193,13 +195,13 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 message = '<epoch:{:3d}, iter:{:8,d}, lr:{:.3e}> '.format(epoch, current_step, model.current_learning_rate())
                 for k, v in logs.items():  # merge log information into message
                     message += '{:s}: {:.3e} '.format(k, v)
-                logger.info(message)
+                print(message)
 
             # -------------------------------
             # 5) save model
             # -------------------------------
             if current_step % opt['train']['checkpoint_save'] == 0 and opt['rank'] == 0:
-                logger.info('Saving the model.')
+                print('Saving the model.')
                 model.save(current_step)
 
             # -------------------------------
@@ -236,7 +238,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                     # -----------------------
                     current_psnr = util.calculate_psnr(E_img, H_img, border=border)
 
-                    logger.info('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
+                    print('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
 
                     avg_psnr += current_psnr
 
