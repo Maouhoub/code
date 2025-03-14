@@ -201,16 +201,16 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
 # Initialize profiler
 # ----------------------------------------
-prof = None
-if opt['rank'] == 0:
-    prof = profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-        on_trace_ready=tensorboard_trace_handler('./logs/profile'),
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True
-    )
+    prof = None
+    if opt['rank'] == 0:
+        prof = profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            on_trace_ready=tensorboard_trace_handler('./logs/profile'),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True
+        )
     prof.start()
     for epoch in range(1000000):  # keep running
         if opt['dist']:
