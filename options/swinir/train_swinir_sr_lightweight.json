@@ -17,8 +17,8 @@
     "train": {
       "name": "train_dataset"          
       , "dataset_type": "sr"         
-      , "dataroot_H": "/content/sample_data/trainH"
-      , "dataroot_L": "/content/sample_data/trainL"            
+      , "dataroot_H": "trainsets/trainH"
+      , "dataroot_L": "trainsets/trainL"            
 
       , "H_size": 128                 
 
@@ -29,8 +29,8 @@
     , "test": {
       "name": "test_dataset"          
       , "dataset_type": "sr"       
-      , "dataroot_H": "/kaggle/input/srdata/testsets/Set5/original" 
-      , "dataroot_L": "/kaggle/input/srdata/testsets/Set5/LRbicx2"            
+      , "dataroot_H": "testsets/set5/hr" 
+      , "dataroot_L": "testsets/set5/lr"           
 
     }
   }
