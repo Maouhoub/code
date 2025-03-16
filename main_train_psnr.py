@@ -167,25 +167,48 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             attention_metrics[module_key] = {
                 'total_time': 0.0,
                 'count': 0,
-                'name': type(module).__name__
+                'name': str(module),
+                'start_event': None,
+                'end_event': None,
+                'max_mem_alloc': 0,
+                'max_mem_cached': 0
             }
-        attention_metrics[module_key]['start_time'] = time.time()
+        attention_metrics[module_key]['mem_alloc_before'] = torch.cuda.memory_allocated()
+        attention_metrics[module_key]['mem_cached_before'] = torch.cuda.memory_reserved()
+        
+        # CUDA events for accurate timing
+        attention_metrics[module_key]['start_event'] = torch.cuda.Event(enable_timing=True)
+        attention_metrics[module_key]['end_event'] = torch.cuda.Event(enable_timing=True)
+        attention_metrics[module_key]['start_event'].record()
 
     def forward_post_hook(module, input, output):
         module_key = id(module)
-        end_time = time.time()
-        if 'start_time' in attention_metrics[module_key]:
-            duration = end_time - attention_metrics[module_key]['start_time']
-            attention_metrics[module_key]['total_time'] += duration
-            attention_metrics[module_key]['count'] += 1
-        attention_metrics[module_key]['mem_alloc'] = torch.cuda.memory_allocated()
-        attention_metrics[module_key]['mem_cached'] = torch.cuda.memory_reserved()
+        metrics = attention_metrics[module_key]
+
+        # Record end event and sync
+        metrics['end_event'].record()
+        torch.cuda.synchronize()
+
+        # Calculate elapsed time
+        elapsed_time = metrics['start_event'].elapsed_time(metrics['end_event']) / 1000  # Convert to seconds
+        metrics['total_time'] += elapsed_time
+        metrics['count'] += 1
+
+        # Calculate memory usage
+        mem_alloc_after = torch.cuda.memory_allocated()
+        mem_cached_after = torch.cuda.memory_reserved()
+        metrics['max_mem_alloc'] = max(metrics['max_mem_alloc'], 
+                                        mem_alloc_after - metrics['mem_alloc_before'])
+        metrics['max_mem_cached'] = max(metrics['max_mem_cached'], 
+                                        mem_cached_after - metrics['mem_cached_before'])
 
     # Attach hooks to attention layers
     for name, module in model.netG.named_modules():
-        if "attn" in name.lower():  # Adjust based on your actual attention layer names
+        if "windowattention" in name:  # Adjust based on your actual attention layer names
             module.register_forward_pre_hook(forward_pre_hook)
             module.register_forward_hook(forward_post_hook)
+             if opt['rank'] == 0:
+                logger.info(f'Registered hooks for attention layer: {name}')
 
     if opt['rank'] == 0:
         logger.info(model.info_network())
@@ -201,16 +224,22 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
 # Initialize profiler
 # ----------------------------------------
-    prof = None
-    if opt['rank'] == 0:
-        prof = profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-            on_trace_ready=tensorboard_trace_handler('./logs/profile'),
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=True
-        )
+prof = None
+if opt['rank'] == 0:
+    prof = profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        schedule=torch.profiler.schedule(
+            wait=2,  # Skip first 2 steps
+            warmup=2,  # Warmup for next 2 steps
+            active=5,  # Profile 5 steps
+            repeat=2  # Repeat cycle twice
+        ),
+        on_trace_ready=tensorboard_trace_handler('./logs/profile'),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True,
+        with_flops=True
+    )
     prof.start()
     for epoch in range(1000000):  # keep running
         if opt['dist']:
@@ -255,12 +284,16 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 message += f" | AvgAttnTime: {avg_attn_time:.4f}s"
 
                 # Log per-layer stats
+                logger.info("\nAttention Layer Performance Analysis:")
                 for key, metrics in attention_metrics.items():
-                    layer_name = metrics.get('name', 'unknown')
-                    avg_time = metrics['total_time'] / metrics['count'] if metrics['count'] > 0 else 0
-                    logger.info(
-                        f"ATTN_PROFILE: {layer_name} - Time: {avg_time:.4f}s | MemAlloc: {metrics['mem_alloc'] / 1e6:.1f}MB | MemCached: {metrics['mem_cached'] / 1e6:.1f}MB")
-
+                    if metrics['count'] > 0:
+                        avg_time = metrics['total_time'] / metrics['count']
+                        logger.info(
+                            f"{metrics['name']}:\n"
+                            f"  - Avg Time: {avg_time:.4f}s\n"
+                            f"  - Peak Memory: {metrics['max_mem_alloc']/1e6:.2f}MB (alloc)/"
+                            f"{metrics['max_mem_cached']/1e6:.2f}MB (cached)\n"
+                            f"  - Calls: {metrics['count']}"
                 # Reset metrics
                 for key in attention_metrics:
                     attention_metrics[key]['total_time'] = 0.0
@@ -320,5 +353,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # You might want to add this in a keyboard interrupt handler
     if prof and opt['rank'] == 0:
         prof.stop()
+        print("Profiling completed. View results with:")
+        print("tensorboard --logdir=logs/profile")
 if __name__ == '__main__':
     main()
