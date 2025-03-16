@@ -227,6 +227,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             # Update learning rate
             model.update_learning_rate(current_step)
 
+            print("current step", current_step)
             # Feed data
             model.feed_data(train_data)
 
