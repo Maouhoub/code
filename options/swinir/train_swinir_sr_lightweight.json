@@ -17,8 +17,8 @@
     "train": {
       "name": "train_dataset"          
       , "dataset_type": "sr"         
-      , "dataroot_H": "trainH"
-      , "dataroot_L": "trainL"            
+      , "dataroot_H": "/kaggle/input/trainsets/trainH"
+      , "dataroot_L": "/kaggle/input/trainsets/trainL"            
 
       , "H_size": 128                 
 
