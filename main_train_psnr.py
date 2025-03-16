@@ -180,9 +180,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             attention_metrics[module_key]['count'] += 1
         attention_metrics[module_key]['mem_alloc'] = torch.cuda.memory_allocated()
         attention_metrics[module_key]['mem_cached'] = torch.cuda.memory_reserved()
-    print("model : ", model.print_network())
+    print("model : ", model.netG)
     # Attach hooks to attention layers
-    for name, module in model.named_modules():
+    for name, module in model.netG.named_modules():
         if "attn" in name.lower():  # Adjust based on your actual attention layer names
             module.register_forward_pre_hook(forward_pre_hook)
             module.register_forward_hook(forward_post_hook)
