@@ -17,8 +17,8 @@
     "train": {
       "name": "train_dataset"          
       , "dataset_type": "sr"         
-      , "dataroot_H": "trainsets/trainH"
-      , "dataroot_L": "trainsets/trainL"            
+      , "dataroot_H": "trainH"
+      , "dataroot_L": "trainL"            
 
       , "H_size": 128                 
 
