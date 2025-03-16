@@ -183,7 +183,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # Register hooks for attention layers
     for name, module in model.netG.named_modules():
         print("layer", name)
-        if "windowattention" in name.lower():
+        if any(part.lower() == 'attn' for part in name.split('.')):
             module.register_forward_pre_hook(forward_pre_hook)
             module.register_forward_hook(forward_post_hook)
             if opt['rank'] == 0:
