@@ -29,8 +29,8 @@
     , "test": {
       "name": "test_dataset"          
       , "dataset_type": "sr"       
-      , "dataroot_H": "testsets/set5/hr" 
-      , "dataroot_L": "testsets/set5/lr"           
+      , "dataroot_H": "/kaggle/input/testsets/set5/hr" 
+      , "dataroot_L": "/kaggle/input/testsets/set5/lr"           
 
     }
   }
