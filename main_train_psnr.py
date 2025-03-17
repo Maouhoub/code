@@ -7,6 +7,7 @@ import logging
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch
+import torch.distributed as dist
 
 from utils import utils_logger
 from utils import utils_image as util
@@ -315,4 +316,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         logger.info("tensorboard --logdir=logs/profile")
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        dist.destroy_process_group()
