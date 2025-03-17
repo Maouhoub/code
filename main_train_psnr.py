@@ -155,7 +155,8 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 'end_event': torch.cuda.Event(enable_timing=True),
                 'max_mem_alloc': 0,
                 'mem_alloc_before': 0,
-                'mem_cached_before': 0
+                'mem_cached_before': 0,
+                'max_mem_cached':0
             }
         metrics = attention_metrics[module_key]
         metrics['mem_alloc_before'] = torch.cuda.memory_allocated()
