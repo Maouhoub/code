@@ -189,7 +189,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             module.register_forward_pre_hook(forward_pre_hook)
             module.register_forward_hook(forward_post_hook)
             if opt['rank'] == 0:
-                logger.info(f'Registered profiling hooks for: {name}')
+                print('Registered profiling hooks for', name)
 
     if opt['rank'] == 0:
         logger.info(model.info_network())
@@ -254,14 +254,14 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 avg_attn_time = total_attn_time / len(attention_metrics) if attention_metrics else 0
                 message += f" | AvgAttnTime: {avg_attn_time:.4f}s"
                 
-                logger.info(message)
+                print(message)
                 
                 # Detailed attention layer analysis
                 logger.info("\n=== Attention Layer Performance ===")
                 for key, metrics in attention_metrics.items():
                     if metrics['count'] > 0:
                         avg_time = metrics['total_time'] / metrics['count']
-                        logger.info(
+                        print(
                             f"{metrics['name']}:\n"
                             f"  - Calls: {metrics['count']}\n"
                             f"  - Avg Time: {avg_time:.4f}s\n"
