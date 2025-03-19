@@ -78,7 +78,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         logger_name = 'train'
         utils_logger.logger_info(logger_name, os.path.join(opt['path']['log'], logger_name + '.log'))
         logger = logging.getLogger(logger_name)
-        logger.info(option.dict2str(opt))
+        print(option.dict2str(opt))
 
     # ----------------------------------------
     # seed
@@ -103,7 +103,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             train_set = define_Dataset(dataset_opt)
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
-                logger.info('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
+                print('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
             if opt['dist']:
                 train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True,
                                                    seed=seed)
@@ -192,8 +192,8 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 print('Registered profiling hooks for', name)
 
     if opt['rank'] == 0:
-        logger.info(model.info_network())
-        logger.info(model.info_params())
+        print(model.info_network())
+        print(model.info_params())
 
     '''
     # ----------------------------------------
@@ -257,7 +257,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 print(message)
                 
                 # Detailed attention layer analysis
-                logger.info("\n=== Attention Layer Performance ===")
+                print("\n=== Attention Layer Performance ===")
                 for key, metrics in attention_metrics.items():
                     if metrics['count'] > 0:
                         avg_time = metrics['total_time'] / metrics['count']
@@ -278,7 +278,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
             # Save model
             if current_step % opt['train']['checkpoint_save'] == 0 and opt['rank'] == 0:
-                logger.info('Saving the model.')
+                print('Saving the model.')
                 model.save(current_step)
 
             # Testing
@@ -308,13 +308,13 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                     avg_psnr += current_psnr
 
                 avg_psnr = avg_psnr / idx
-                logger.info(f'<epoch:{epoch:3d}, iter:{current_step:8,d}, Avg PSNR: {avg_psnr:.2f}dB\n')
+                print(f'<epoch:{epoch:3d}, iter:{current_step:8,d}, Avg PSNR: {avg_psnr:.2f}dB\n')
 
     # Cleanup profiler
     if prof and opt['rank'] == 0:
         prof.stop()
-        logger.info("Profiling completed. View results with:")
-        logger.info("tensorboard --logdir=logs/profile")
+        print("Profiling completed. View results with:")
+        print("tensorboard --logdir=logs/profile")
 
 if __name__ == '__main__':
     try:
