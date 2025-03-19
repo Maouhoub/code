@@ -227,6 +227,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         for i, train_data in enumerate(train_loader):
             current_step += 1
 
+            if current_step % 10 == 0 and opt['rank'] == 0:
+                print(f"Step {current_step}: GPU Memory Allocated = {torch.cuda.memory_allocated() / 1e9:.2f} GB, Reserved = {torch.cuda.memory_reserved() / 1e9:.2f} GB")
+            
             # Update learning rate
             model.update_learning_rate(current_step)
 
