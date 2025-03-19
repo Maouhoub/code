@@ -219,7 +219,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             with_flops=True
         )
         prof.start()
-
+    torch.cuda.empty_cache()
     for epoch in range(1000000):
         if opt['dist']:
             train_sampler.set_epoch(epoch + seed)
