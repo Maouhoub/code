@@ -214,7 +214,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 repeat=2
             ),
             on_trace_ready=tensorboard_trace_handler('./logs/profile'),
-            record_shapes=True,
+            record_shapes=False,
             profile_memory=True,
             with_stack=True,
             with_flops=True
