@@ -231,8 +231,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             if current_step % 10 == 0 and opt['rank'] == 0:
                 print(
                     f"Step {current_step}: GPU Memory Allocated = {torch.cuda.memory_allocated() / 1e9:.2f} GB, Reserved = {torch.cuda.memory_reserved() / 1e9:.2f} GB")
-            if current_step % 100 == 0:
-                torch.cuda.empty_cache()
+
             # Update learning rate
             model.update_learning_rate(current_step)
 
@@ -245,7 +244,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 model.optimize_parameters(current_step)
             del train_data
             # Profiler step
-            if prof and current_step % 10 == 0 and opt['rank'] == 0:
+            if prof and current_step % opt['train']['checkpoint_print'] == 0 and opt['rank'] == 0:
                 prof.step()
 
             # Logging
