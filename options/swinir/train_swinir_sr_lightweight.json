@@ -76,6 +76,6 @@
 
     , "checkpoint_test": 5000           
     , "checkpoint_save": 5000          
-    , "checkpoint_print": 50   
+    , "checkpoint_print": 200  
   }
 }
