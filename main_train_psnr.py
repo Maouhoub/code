@@ -20,6 +20,7 @@ from models.select_model import define_Model
 import time
 from torch.profiler import profile, record_function, ProfilerActivity, tensorboard_trace_handler
 
+
 def main(json_path='options/train_msrresnet_psnr.json'):
     '''
     # ----------------------------------------
@@ -156,7 +157,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 'max_mem_alloc': 0,
                 'mem_alloc_before': 0,
                 'mem_cached_before': 0,
-                'max_mem_cached':0
+                'max_mem_cached': 0
             }
         metrics = attention_metrics[module_key]
         metrics['mem_alloc_before'] = torch.cuda.memory_allocated()
@@ -168,19 +169,19 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         metrics = attention_metrics[module_key]
         metrics['end_event'].record()
         torch.cuda.synchronize()
-        
+
         # Calculate time
         elapsed_time = metrics['start_event'].elapsed_time(metrics['end_event']) / 1000  # Convert to seconds
         metrics['total_time'] += elapsed_time
         metrics['count'] += 1
-        
+
         # Calculate memory
         mem_alloc_after = torch.cuda.memory_allocated()
         mem_cached_after = torch.cuda.memory_reserved()
-        metrics['max_mem_alloc'] = max(metrics['max_mem_alloc'], 
-                                     mem_alloc_after - metrics['mem_alloc_before'])
-        metrics['max_mem_cached'] = max(metrics['max_mem_cached'], 
-                                      mem_cached_after - metrics['mem_cached_before'])
+        metrics['max_mem_alloc'] = max(metrics['max_mem_alloc'],
+                                       mem_alloc_after - metrics['mem_alloc_before'])
+        metrics['max_mem_cached'] = max(metrics['max_mem_cached'],
+                                        mem_cached_after - metrics['mem_cached_before'])
 
     # Register hooks for attention layers
     for name, module in model.netG.named_modules():
@@ -200,7 +201,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # Step--4 (main training)
     # ----------------------------------------
     '''
-    
+
     # Initialize profiler
     prof = None
     if opt['rank'] == 0:
@@ -228,7 +229,8 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             current_step += 1
 
             if current_step % 10 == 0 and opt['rank'] == 0:
-                print(f"Step {current_step}: GPU Memory Allocated = {torch.cuda.memory_allocated() / 1e9:.2f} GB, Reserved = {torch.cuda.memory_reserved() / 1e9:.2f} GB")
+                print(
+                    f"Step {current_step}: GPU Memory Allocated = {torch.cuda.memory_allocated() / 1e9:.2f} GB, Reserved = {torch.cuda.memory_reserved() / 1e9:.2f} GB")
             if current_step % 100 == 0:
                 torch.cuda.empty_cache()
             # Update learning rate
@@ -252,27 +254,28 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 message = f'<epoch:{epoch:3d}, iter:{current_step:8,d}, lr:{model.current_learning_rate():.3e}> '
                 for k, v in logs.items():
                     message += f'{k}: {v:.3e} '
-                
+
                 # Attention metrics
                 total_attn_time = sum([v['total_time'] for v in attention_metrics.values()])
                 avg_attn_time = total_attn_time / len(attention_metrics) if attention_metrics else 0
                 message += f" | AvgAttnTime: {avg_attn_time:.4f}s"
-                
+
                 print(message)
-                
+
                 # Detailed attention layer analysis
                 print("\n=== Attention Layer Performance ===")
                 for key, metrics in attention_metrics.items():
+                    print(metrics)
                     if metrics['count'] > 0:
                         avg_time = metrics['total_time'] / metrics['count']
                         print(
                             f"{metrics['name']}:\n"
                             f"  - Calls: {metrics['count']}\n"
                             f"  - Avg Time: {avg_time:.4f}s\n"
-                            f"  - Peak Memory: {metrics['max_mem_alloc']/1e6:.2f}MB (allocated)\n"
-                            f"  - Peak Cache: {metrics['max_mem_cached']/1e6:.2f}MB (reserved)"
+                            f"  - Peak Memory: {metrics['max_mem_alloc'] / 1e6:.2f}MB (allocated)\n"
+                            f"  - Peak Cache: {metrics['max_mem_cached'] / 1e6:.2f}MB (reserved)"
                         )
-                
+
                 # Reset metrics
                 for key in attention_metrics:
                     attention_metrics[key]['total_time'] = 0.0
@@ -286,7 +289,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 model.save(current_step)
 
             # Testing
+
             if current_step % opt['train']['checkpoint_test'] == 0 and opt['rank'] == 0:
+                print("testing")
                 avg_psnr = 0.0
                 idx = 0
 
@@ -319,6 +324,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         prof.stop()
         print("Profiling completed. View results with:")
         print("tensorboard --logdir=logs/profile")
+
 
 if __name__ == '__main__':
     try:
