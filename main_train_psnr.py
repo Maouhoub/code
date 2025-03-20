@@ -241,7 +241,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             # Optimize parameters
             with record_function("model_forward"):
                 model.optimize_parameters(current_step)
-
+            del train_data
             # Profiler step
             if prof and current_step % 10 == 0 and opt['rank'] == 0:
                 prof.step()
