@@ -7,7 +7,6 @@ import logging
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch
-import torch.distributed as dist
 
 from utils import utils_logger
 from utils import utils_image as util
@@ -17,11 +16,21 @@ from utils.utils_dist import get_dist_info, init_dist
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
 
-import time
-from torch.profiler import profile, record_function, ProfilerActivity, tensorboard_trace_handler
+
+'''
+# --------------------------------------------
+# training code for MSRResNet
+# --------------------------------------------
+# Kai Zhang (cskaizhang@gmail.com)
+# github: https://github.com/cszn/KAIR
+# --------------------------------------------
+# https://github.com/xinntao/BasicSR
+# --------------------------------------------
+'''
 
 
 def main(json_path='options/train_msrresnet_psnr.json'):
+
     '''
     # ----------------------------------------
     # Step--1 (prepare opt)
@@ -50,16 +59,17 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     # update opt
     # ----------------------------------------
+    # -->-->-->-->-->-->-->-->-->-->-->-->-->-
     init_iter_G, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
     init_iter_E, init_path_E = option.find_last_checkpoint(opt['path']['models'], net_type='E')
     opt['path']['pretrained_netG'] = init_path_G
     opt['path']['pretrained_netE'] = init_path_E
-    init_iter_optimizerG, init_path_optimizerG = option.find_last_checkpoint(opt['path']['models'],
-                                                                             net_type='optimizerG')
+    init_iter_optimizerG, init_path_optimizerG = option.find_last_checkpoint(opt['path']['models'], net_type='optimizerG')
     opt['path']['pretrained_optimizerG'] = init_path_optimizerG
     current_step = max(init_iter_G, init_iter_E, init_iter_optimizerG)
 
     border = opt['scale']
+    # --<--<--<--<--<--<--<--<--<--<--<--<--<-
 
     # ----------------------------------------
     # save opt to  a '../option.json' file
@@ -77,9 +87,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     if opt['rank'] == 0:
         logger_name = 'train'
-        utils_logger.logger_info(logger_name, os.path.join(opt['path']['log'], logger_name + '.log'))
+        utils_logger.logger_info(logger_name, os.path.join(opt['path']['log'], logger_name+'.log'))
         logger = logging.getLogger(logger_name)
-        print(option.dict2str(opt))
+        logger.info(option.dict2str(opt))
 
     # ----------------------------------------
     # seed
@@ -95,23 +105,26 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     '''
     # ----------------------------------------
-    # Step--2 (create dataloader)
+    # Step--2 (creat dataloader)
     # ----------------------------------------
     '''
 
+    # ----------------------------------------
+    # 1) create_dataset
+    # 2) creat_dataloader for train and test
+    # ----------------------------------------
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
-                print('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
+                logger.info('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
             if opt['dist']:
-                train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True,
-                                                   seed=seed)
+                train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True, seed=seed)
                 train_loader = DataLoader(train_set,
-                                          batch_size=dataset_opt['dataloader_batch_size'] // opt['num_gpu'],
+                                          batch_size=dataset_opt['dataloader_batch_size']//opt['num_gpu'],
                                           shuffle=False,
-                                          num_workers=dataset_opt['dataloader_num_workers'] // opt['num_gpu'],
+                                          num_workers=dataset_opt['dataloader_num_workers']//opt['num_gpu'],
                                           drop_last=True,
                                           pin_memory=True,
                                           sampler=train_sampler)
@@ -139,62 +152,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     model = define_Model(opt)
     model.init_train()
-
-    # ----------------------------------------
-    # Enhanced attention profiling
-    # ----------------------------------------
-    attention_metrics = {}
-
-    def forward_pre_hook(module, input):
-        module_key = id(module)
-        if module_key not in attention_metrics:
-            attention_metrics[module_key] = {
-                'total_time': 0.0,
-                'count': 0,
-                'name': str(module),
-                'start_event': torch.cuda.Event(enable_timing=True),
-                'end_event': torch.cuda.Event(enable_timing=True),
-                'max_mem_alloc': 0,
-                'mem_alloc_before': 0,
-                'mem_cached_before': 0,
-                'max_mem_cached': 0
-            }
-        metrics = attention_metrics[module_key]
-        metrics['mem_alloc_before'] = torch.cuda.memory_allocated()
-        metrics['mem_cached_before'] = torch.cuda.memory_reserved()
-        metrics['start_event'].record()
-
-    def forward_post_hook(module, input, output):
-        module_key = id(module)
-        metrics = attention_metrics[module_key]
-        metrics['end_event'].record()
-        torch.cuda.synchronize()
-
-        # Calculate time
-        elapsed_time = metrics['start_event'].elapsed_time(metrics['end_event']) / 1000  # Convert to seconds
-        metrics['total_time'] += elapsed_time
-        metrics['count'] += 1
-
-        # Calculate memory
-        mem_alloc_after = torch.cuda.memory_allocated()
-        mem_cached_after = torch.cuda.memory_reserved()
-        metrics['max_mem_alloc'] = max(metrics['max_mem_alloc'],
-                                       mem_alloc_after - metrics['mem_alloc_before'])
-        metrics['max_mem_cached'] = max(metrics['max_mem_cached'],
-                                        mem_cached_after - metrics['mem_cached_before'])
-
-    # Register hooks for attention layers
-    for name, module in model.netG.named_modules():
-        print("layer", name)
-        if any(part.lower() == 'attn' for part in name.split('.')):
-            module.register_forward_pre_hook(forward_pre_hook)
-            module.register_forward_hook(forward_post_hook)
-            if opt['rank'] == 0:
-                print('Registered profiling hooks for', name)
-
     if opt['rank'] == 0:
-        print(model.info_network())
-        print(model.info_params())
+        logger.info(model.info_network())
+        logger.info(model.info_params())
 
     '''
     # ----------------------------------------
@@ -202,95 +162,51 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     '''
 
-    # Initialize profiler
-    prof = None
-    if opt['rank'] == 0:
-        prof = profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=torch.profiler.schedule(
-                wait=2,
-                warmup=2,
-                active=5,
-                repeat=2
-            ),
-            on_trace_ready=tensorboard_trace_handler('./logs/profile'),
-            record_shapes=False,
-            profile_memory=True,
-            with_stack=True,
-            with_flops=True
-        )
-        prof.start()
-    torch.cuda.empty_cache()
-    for epoch in range(1000000):
+    for epoch in range(1000000):  # keep running
         if opt['dist']:
             train_sampler.set_epoch(epoch + seed)
 
         for i, train_data in enumerate(train_loader):
+
             current_step += 1
 
-            if current_step % 10 == 0 and opt['rank'] == 0:
-                print(
-                    f"Step {current_step}: GPU Memory Allocated = {torch.cuda.memory_allocated() / 1e9:.2f} GB, Reserved = {torch.cuda.memory_reserved() / 1e9:.2f} GB")
-
-            # Update learning rate
+            # -------------------------------
+            # 1) update learning rate
+            # -------------------------------
             model.update_learning_rate(current_step)
 
-            print("current step", current_step)
-            # Feed data
+            # -------------------------------
+            # 2) feed patch pairs
+            # -------------------------------
             model.feed_data(train_data)
 
-            # Optimize parameters
-            with record_function("model_forward"):
-                model.optimize_parameters(current_step)
-            del train_data
-            # Profiler step
-            if prof and current_step % opt['train']['checkpoint_print'] == 0 and opt['rank'] == 0:
-                prof.step()
+            # -------------------------------
+            # 3) optimize parameters
+            # -------------------------------
+            model.optimize_parameters(current_step)
 
-            # Logging
+            # -------------------------------
+            # 4) training information
+            # -------------------------------
             if current_step % opt['train']['checkpoint_print'] == 0 and opt['rank'] == 0:
-                logs = model.current_log()
-                message = f'<epoch:{epoch:3d}, iter:{current_step:8,d}, lr:{model.current_learning_rate():.3e}> '
-                for k, v in logs.items():
-                    message += f'{k}: {v:.3e} '
+                logs = model.current_log()  # such as loss
+                message = '<epoch:{:3d}, iter:{:8,d}, lr:{:.3e}> '.format(epoch, current_step, model.current_learning_rate())
+                for k, v in logs.items():  # merge log information into message
+                    message += '{:s}: {:.3e} '.format(k, v)
+                logger.info(message)
 
-                # Attention metrics
-                total_attn_time = sum([v['total_time'] for v in attention_metrics.values()])
-                avg_attn_time = total_attn_time / len(attention_metrics) if attention_metrics else 0
-                message += f" | AvgAttnTime: {avg_attn_time:.4f}s"
-
-                print(message)
-
-                # Detailed attention layer analysis
-                print("\n=== Attention Layer Performance ===")
-                for key, metrics in attention_metrics.items():
-                    print(metrics)
-                    if metrics['count'] > 0:
-                        avg_time = metrics['total_time'] / metrics['count']
-                        print(
-                            f"{metrics['name']}:\n"
-                            f"  - Calls: {metrics['count']}\n"
-                            f"  - Avg Time: {avg_time:.4f}s\n"
-                            f"  - Peak Memory: {metrics['max_mem_alloc'] / 1e6:.2f}MB (allocated)\n"
-                            f"  - Peak Cache: {metrics['max_mem_cached'] / 1e6:.2f}MB (reserved)"
-                        )
-
-                # Reset metrics
-                for key in attention_metrics:
-                    attention_metrics[key]['total_time'] = 0.0
-                    attention_metrics[key]['count'] = 0
-                    attention_metrics[key]['max_mem_alloc'] = 0
-                    attention_metrics[key]['max_mem_cached'] = 0
-
-            # Save model
+            # -------------------------------
+            # 5) save model
+            # -------------------------------
             if current_step % opt['train']['checkpoint_save'] == 0 and opt['rank'] == 0:
-                print('Saving the model.')
+                logger.info('Saving the model.')
                 model.save(current_step)
 
-            # Testing
-
+            # -------------------------------
+            # 6) testing
+            # -------------------------------
             if current_step % opt['train']['checkpoint_test'] == 0 and opt['rank'] == 0:
-                print("testing")
+
                 avg_psnr = 0.0
                 idx = 0
 
@@ -309,24 +225,25 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                     E_img = util.tensor2uint(visuals['E'])
                     H_img = util.tensor2uint(visuals['H'])
 
-                    save_img_path = os.path.join(img_dir, f'{img_name}_{current_step}.png')
+                    # -----------------------
+                    # save estimated image E
+                    # -----------------------
+                    save_img_path = os.path.join(img_dir, '{:s}_{:d}.png'.format(img_name, current_step))
                     util.imsave(E_img, save_img_path)
 
+                    # -----------------------
+                    # calculate PSNR
+                    # -----------------------
                     current_psnr = util.calculate_psnr(E_img, H_img, border=border)
+
+                    logger.info('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
+
                     avg_psnr += current_psnr
 
                 avg_psnr = avg_psnr / idx
-                print(f'<epoch:{epoch:3d}, iter:{current_step:8,d}, Avg PSNR: {avg_psnr:.2f}dB\n')
 
-    # Cleanup profiler
-    if prof and opt['rank'] == 0:
-        prof.stop()
-        print("Profiling completed. View results with:")
-        print("tensorboard --logdir=logs/profile")
-
+                # testing log
+                logger.info('<epoch:{:3d}, iter:{:8,d}, Average PSNR : {:<.2f}dB\n'.format(epoch, current_step, avg_psnr))
 
 if __name__ == '__main__':
-    try:
-        main()
-    finally:
-        dist.destroy_process_group()
+    main()
