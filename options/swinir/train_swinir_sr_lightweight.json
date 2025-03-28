@@ -17,8 +17,8 @@
     "train": {
       "name": "train_dataset"          
       , "dataset_type": "sr"         
-      , "dataroot_H": "/kaggle/input/trainsets/trainH"
-      , "dataroot_L": "/kaggle/input/trainsets/trainL"            
+      , "dataroot_H": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_HR"
+      , "dataroot_L": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_LR_bicubic/X2"            
 
       , "H_size": 128                 
 
@@ -29,8 +29,8 @@
     , "test": {
       "name": "test_dataset"          
       , "dataset_type": "sr"       
-      , "dataroot_H": "/kaggle/input/testsets/set5/hr" 
-      , "dataroot_L": "/kaggle/input/testsets/set5/lr"           
+      , "dataroot_H": "/content/master/testsets/set5/hr" 
+      , "dataroot_L": "/content/master/testsets/set5/lr"           
 
     }
   }
