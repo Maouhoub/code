@@ -32,8 +32,8 @@
     , "test": {
       "name": "test_dataset"            // just name
       , "dataset_type": "sr"         // "dncnn" | "dnpatch" | "fdncnn" | "ffdnet" | "sr" | "srmd" | "dpsr" | "plain" | "plainpatch" | "jpeg"
-      , "dataroot_H": "/kaggle/input/project/testsets/testsets/Set5/original"  // path of H testing dataset
-      , "dataroot_L": "/kaggle/input/project/testsets/testsets/Set5/LRbicx2"              // path of L testing dataset
+      , "dataroot_H": "/content/code/set5-hr-lr/Set5/HR"  // path of H testing dataset
+      , "dataroot_L": "/content/code/set5-hr-lr/Set5/LR/bicubic/x2"              // path of L testing dataset
 
     }
   }
