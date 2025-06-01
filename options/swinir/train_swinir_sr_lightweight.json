@@ -30,8 +30,8 @@
     "test": {
       "name": "test_dataset",
       "dataset_type": "sr",
-      "dataroot_H": "/content/set5-hr-lr/Set5/HR",
-      "dataroot_L": "/content/set5-hr-lr/Set5/LR"
+      "dataroot_H": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_HR",
+      "dataroot_L": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_LR_bicubic/X2"
     }
   },
   "netG": {
