@@ -88,8 +88,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     if opt['rank'] == 0:
         logger_name = 'train'
         utils_logger.logger_info(logger_name, os.path.join(opt['path']['log'], logger_name+'.log'))
-        logger = logging.getLogger(logger_name)
-        print(option.dict2str(opt))
+        #print(option.dict2str(opt))
 
     # ----------------------------------------
     # seed
@@ -153,7 +152,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     model = define_Model(opt)
     model.init_train()
     if opt['rank'] == 0:
-        print(model.info_network())
+        #print(model.info_network())
         print(model.info_params())
 
     '''
@@ -162,7 +161,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     '''
 
-    for epoch in opt['L2_ft_epochs']:  # keep running
+    for epoch in opt['fine_tune']['L2_ft_epochs']:  # keep running
         if opt['dist']:
             train_sampler.set_epoch(epoch + seed)
 
