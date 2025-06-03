@@ -151,22 +151,25 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     model = define_Model(opt)
     model.init_train()
-    if opt['rank'] == 0:
+    #if opt['rank'] == 0:
         #print(model.info_network())
-        print(model.info_params())
+        #print(model.info_params())
 
     '''
     # ----------------------------------------
     # Step--4 (main training)
     # ----------------------------------------
     '''
+    e_pochs = opt['fine_tune']['L2_ft_epochs']
+    print("Regularisation epochs : ", e_pochs)
 
-    for epoch in range(opt['fine_tune']['L2_ft_epochs']):  # keep running
+    for epoch in range(e_pochs):  # keep running
         if opt['dist']:
             train_sampler.set_epoch(epoch + seed)
 
         for i, train_data in enumerate(train_loader):
 
+            print("current_step", current_step)
             current_step += 1
       
             # -------------------------------
