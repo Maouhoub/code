@@ -11,6 +11,7 @@
   "path": {
     "root": "superresolution",
     "pretrained_netG": "wieights/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth",
+    "models": "wieights",
     "pretrained_netE": null
   },
   "fine_tune": {
