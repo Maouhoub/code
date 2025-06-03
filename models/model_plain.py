@@ -49,6 +49,7 @@ class ModelPlain(ModelBase):
     # load pre-trained G model
     # ----------------------------------------
     def load(self):
+        print("OPTIONS : " , self.opt)
         load_path_G = self.opt['path']['pretrained_netG']
         if load_path_G is not None:
             print('Loading model for G [{:s}] ...'.format(load_path_G))
