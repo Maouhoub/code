@@ -65,6 +65,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     opt['path']['pretrained_netG'] = init_path_G
     opt['path']['pretrained_netE'] = init_path_E
     init_iter_optimizerG, init_path_optimizerG = option.find_last_checkpoint(opt['path']['models'], net_type='optimizerG')
+    print ("iterations : " , init_iter_optimizerG, init_path_optimizerG)
     opt['path']['pretrained_optimizerG'] = init_path_optimizerG
     current_step = max(init_iter_G, init_iter_E, init_iter_optimizerG)
 
