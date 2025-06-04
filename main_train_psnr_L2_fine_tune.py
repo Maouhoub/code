@@ -16,6 +16,7 @@ from utils.utils_dist import get_dist_info, init_dist
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
 
+import torch.nn.utils.prune as prune
 
 '''
 # --------------------------------------------
@@ -156,6 +157,16 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         #print(model.info_network())
         #print(model.info_params())
 
+    params_to_prune = []
+    for module in model.modules():
+        if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
+            params_to_prune.append((module, 'weight'))
+
+    prune.global_unstructured(
+        params_to_prune,
+        pruning_method=prune.L1Unstructured,
+        amount=0.20  # or whatever % you need
+)
     '''
     # ----------------------------------------
     # Step--4 (main training)
