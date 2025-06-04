@@ -63,7 +63,7 @@
   "train": {
     "G_lossfn_type": "l1",
     "G_lossfn_weight": 1.0,
-    "E_decay": 0.999,
+    "E_decay": 0,
     "G_optimizer_type": "adam",
     "G_optimizer_lr": 1e-5,
     "G_optimizer_wd": 1e-4,
