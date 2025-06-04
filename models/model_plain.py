@@ -64,6 +64,10 @@ class ModelPlain(ModelBase):
                 self.update_E(0)
             self.netE.eval()
 
+
+    def modules(self):
+        return self.netG.modules()
+
     # ----------------------------------------
     # load optimizer
     # ----------------------------------------
