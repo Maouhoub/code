@@ -217,6 +217,11 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # -------------------------------
     if opt['rank'] == 0:
         print('Saving the model.')
+        for name, module in model.named_modules():
+            if hasattr(module, 'weight_orig'):
+                prune.remove(module, 'weight')
+
+
         model.save(current_step)
 
     # -------------------------------

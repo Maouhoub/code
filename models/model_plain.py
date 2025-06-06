@@ -67,6 +67,9 @@ class ModelPlain(ModelBase):
 
     def modules(self):
         return self.netG.modules()
+    
+    def named_modules(self):
+        return self.netG.named_modules()
 
     # ----------------------------------------
     # load optimizer
