@@ -15,7 +15,7 @@
     "pretrained_netE": null
   },
   "fine_tune": {
-    "L2_ft_epochs": 5
+    "L2_ft_epochs": 8
   },
   "datasets": {
     "train": {
@@ -66,7 +66,7 @@
     "E_decay": 0,
     "G_optimizer_type": "adam",
     "G_optimizer_lr": 1e-5,
-    "G_optimizer_wd": 1e-4,
+    "G_optimizer_wd": 0,
     "G_optimizer_clipgrad": null,
     "G_optimizer_reuse": true,
     "G_scheduler_type": "MultiStepLR",
