@@ -50,7 +50,7 @@ class ModelPlain(ModelBase):
     # ----------------------------------------
     def load(self):
         print("OPTIONS : " , self.opt)
-        load_path_G = "superresolution/swinir_sr_lightweight_x2/models/wt.pth"
+        load_path_G = "superresolution/swinir_sr_lightweight_x2/models/w_w.pth"
         if load_path_G is not None:
             print('Loading model for G [{:s}] ...'.format(load_path_G))
             self.load_network(load_path_G, self.netG, strict=self.opt_train['G_param_strict'], param_key='params')
