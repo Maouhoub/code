@@ -153,8 +153,29 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     model = define_Model(opt)
 
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"Total parameters: {total_params:,}")
+    def print_sparsity(model):
+        total_params = 0
+        zero_params = 0
+        
+        for name, module in model.named_modules():
+            if isinstance(module, (nn.Conv2d, nn.Linear)):
+                params = module.weight.numel()
+                zeros = torch.sum(module.weight == 0).item()
+                
+                print(f"{name}: {zeros}/{params} zeros ({100*zeros/params:.2f}%)")
+                
+                total_params += params
+                zero_params += zeros
+        
+        print(f"\nGlobal sparsity: {100*zero_params/total_params:.2f}%")
+
+    # Compare before/after pruning
+    print("== Before Pruning ==")
+    print_sparsity(model)
+
+
+
+    return
     
     # -------------------------------
     # 6) testing
