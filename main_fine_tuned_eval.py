@@ -3,6 +3,8 @@ import math
 import argparse
 import random
 import numpy as np
+import torch
+import torch.nn as nn
 import logging
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
