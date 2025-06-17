@@ -162,9 +162,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         for name, module in model.named_modules():
             if isinstance(module, (nn.Conv2d, nn.Linear)):
                 params = module.weight.numel()
-                zeros = torch.sum(module.weight == 0).item()
+                zeros = torch.sum(module.weight.data == 0).item()
                 
-                print(f"{name}: {zeros}/{params} zeros ({100*zeros/params:.2f}%)")
+                #print(f"{name}: {zeros}/{params} zeros ({100*zeros/params:.2f}%)")
                 
                 total_params += params
                 zero_params += zeros
