@@ -175,7 +175,8 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # Step--4 (main training)
     # ----------------------------------------
     '''
-    e_pochs = opt['fine_tune']['L2_ft_epochs']
+    #e_pochs = opt['fine_tune']['L2_ft_epochs']
+    e_pochs = 1
     print("Regularisation epochs : ", e_pochs)
 
     for epoch in range(e_pochs):  # keep running
