@@ -166,6 +166,8 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     while iteraton_psnr > 34.75:
         pruning_iteration += 1
+
+        print("pruning iteration : " , pruning_iteration)
         params_to_prune = []
         for module in model.modules():
             if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
