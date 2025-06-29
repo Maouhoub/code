@@ -158,50 +158,130 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         #print(model.info_network())
         #print(model.info_params())
 
-   
-    # -------------------------------
-    # 6) testing
-    # -------------------------------
-    if opt['rank'] == 0:
 
-        avg_psnr = 0.0
-        avg_inference_time = 0.0
-        idx = 0
+    
+    pruning_iteration = 0
 
-        for test_data in test_loader:
-            idx += 1
-            if idx == 10:
-                break
-            image_name_ext = os.path.basename(test_data['L_path'][0])
-            img_name, ext = os.path.splitext(image_name_ext)
+    iteraton_psnr = 1000
 
-            img_dir = os.path.join(opt['path']['images'], img_name)
-            util.mkdir(img_dir)
+    while iteraton_psnr > 34.75:
+        pruning_iteration += 1
+        params_to_prune = []
+        for module in model.modules():
+            if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
+                params_to_prune.append((module, 'weight'))
 
-            model.feed_data(test_data)
-            start_time = time.time()
-            model.test()
-            end_time = time.time()
-            avg_inference_time = avg_inference_time +end_time - start_time
 
-            visuals = model.current_visuals()
-            E_img = util.tensor2uint(visuals['E'])
-            H_img = util.tensor2uint(visuals['H'])
+        
+        
+        print("params_to_prune : " , params_to_prune)
 
-            # -----------------------
-            # save estimated image E
-            # -----------------------
-            save_img_path = os.path.join(img_dir, '{:s}_{:d}.png'.format(img_name, current_step))
-            util.imsave(E_img, save_img_path)
+        prune.global_unstructured(
+            params_to_prune,
+            pruning_method=prune.L1Unstructured,
+            amount=0.10  # or whatever % you need
+    )
+        '''
+        # ----------------------------------------
+        # Step--4 (main training)
+        # ----------------------------------------
+        '''
+        e_pochs = opt['fine_tune']['L2_ft_epochs']
 
-            # -----------------------
-            # calculate PSNR
-            # -----------------------
-            current_psnr = util.calculate_psnr(E_img, H_img, border=border)
+        print("finetuning epochs : ", e_pochs)
 
-            print('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
+        for epoch in range(e_pochs):  # keep running
+            if opt['dist']:
+                train_sampler.set_epoch(epoch + seed)
 
-            avg_psnr += current_psnr
+            for i, train_data in enumerate(train_loader):
+
+                print("current_step", current_step)
+                current_step += 1
+        
+                # -------------------------------
+                # 1) update learning rate
+                # -------------------------------
+                model.update_learning_rate(current_step)
+
+                # -------------------------------
+                # 2) feed patch pairs
+                # -------------------------------
+                model.feed_data(train_data)
+
+                # -------------------------------
+                # 3) optimize parameters
+                # -------------------------------
+                model.optimize_parameters(current_step)
+
+            
+        # -------------------------------
+            # 4) training information
+            # -------------------------------
+        
+        
+        if opt['rank'] == 0:
+            logs = model.current_log()  # such as loss
+            message = ''
+            for k, v in logs.items():  # merge log information into message
+                message += '{:s}: {:.3e} '.format(k, v)
+            print(message)
+
+        # -------------------------------
+        # 5) save model
+        # -------------------------------
+        if opt['rank'] == 0:
+            print('Saving the model.')
+            for name, module in model.named_modules():
+                if hasattr(module, 'weight_orig'):
+                    print("removing pruning mask for : " , name)
+                    prune.remove(module, 'weight')
+
+
+            model.save(pruning_iteration)
+
+        # -------------------------------
+        # 6) testing
+        # -------------------------------
+        if opt['rank'] == 0:
+            avg_psnr = 0.0
+            avg_inference_time = 0.0
+            idx = 0
+
+            for test_data in test_loader:
+                idx += 1
+                #if idx == 10:
+                #    break
+                image_name_ext = os.path.basename(test_data['L_path'][0])
+                img_name, ext = os.path.splitext(image_name_ext)
+
+                img_dir = os.path.join(opt['path']['images'], img_name)
+                util.mkdir(img_dir)
+
+                model.feed_data(test_data)
+                start_time = time.time()
+                model.test()
+                end_time = time.time()
+                avg_inference_time = avg_inference_time +end_time - start_time
+
+                visuals = model.current_visuals()
+                E_img = util.tensor2uint(visuals['E'])
+                H_img = util.tensor2uint(visuals['H'])
+
+                # -----------------------
+                # save estimated image E
+                # -----------------------
+                save_img_path = os.path.join(img_dir, '{:s}_{:d}.png'.format(img_name, current_step))
+                util.imsave(E_img, save_img_path)
+
+                # -----------------------
+                # calculate PSNR
+                # -----------------------
+                current_psnr = util.calculate_psnr(E_img, H_img, border=border)
+
+                print('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
+
+                avg_psnr += current_psnr
 
         avg_psnr = avg_psnr / idx
         avg_inference_time = avg_inference_time / idx
