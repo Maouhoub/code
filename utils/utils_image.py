@@ -297,6 +297,19 @@ def tensor2uint(img):
     return np.uint8((img*255.0).round())
 
 
+
+def compute_sparsity(model):
+    total_params = 0
+    zero_params = 0
+    for param in model.parameters():
+        if param.requires_grad:
+            total_params += param.numel()
+            zero_params += (param == 0).sum().item()
+    sparsity = 100.0 * zero_params / total_params
+    print(f"Model Sparsity: {sparsity:.2f}%")
+    return sparsity
+
+
 # --------------------------------------------
 # numpy(single) (HxWxC) <--->  tensor
 # --------------------------------------------
