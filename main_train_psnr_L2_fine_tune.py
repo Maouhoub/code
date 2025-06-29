@@ -158,78 +158,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         #print(model.info_network())
         #print(model.info_params())
 
-    params_to_prune = []
-    for module in model.modules():
-        if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
-            params_to_prune.append((module, 'weight'))
-
-    
-    print("params_to_prune : " , params_to_prune)
-
-    prune.global_unstructured(
-        params_to_prune,
-        pruning_method=prune.L1Unstructured,
-        amount=0.10  # or whatever % you need
-)
-    '''
-    # ----------------------------------------
-    # Step--4 (main training)
-    # ----------------------------------------
-    '''
-    e_pochs = opt['fine_tune']['L2_ft_epochs']
-
-    print("Regularisation epochs : ", e_pochs)
-
-    for epoch in range(e_pochs):  # keep running
-        if opt['dist']:
-            train_sampler.set_epoch(epoch + seed)
-
-        for i, train_data in enumerate(train_loader):
-
-            print("current_step", current_step)
-            current_step += 1
-      
-            # -------------------------------
-            # 1) update learning rate
-            # -------------------------------
-            model.update_learning_rate(current_step)
-
-            # -------------------------------
-            # 2) feed patch pairs
-            # -------------------------------
-            model.feed_data(train_data)
-
-            # -------------------------------
-            # 3) optimize parameters
-            # -------------------------------
-            model.optimize_parameters(current_step)
-
-         
-       # -------------------------------
-        # 4) training information
-        # -------------------------------
-    
-    
-    if opt['rank'] == 0:
-        logs = model.current_log()  # such as loss
-        message = ''
-        for k, v in logs.items():  # merge log information into message
-            message += '{:s}: {:.3e} '.format(k, v)
-        print(message)
-
-    # -------------------------------
-    # 5) save model
-    # -------------------------------
-    if opt['rank'] == 0:
-        print('Saving the model.')
-        for name, module in model.named_modules():
-            if hasattr(module, 'weight_orig'):
-                print("removing pruning mask for : " , name)
-                prune.remove(module, 'weight')
-
-
-        model.save(current_step)
-
+   
     # -------------------------------
     # 6) testing
     # -------------------------------
