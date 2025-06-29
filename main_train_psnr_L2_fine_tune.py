@@ -162,6 +162,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
             params_to_prune.append((module, 'weight'))
 
+    
+    print("params_to_prune : " , params_to_prune)
+
     prune.global_unstructured(
         params_to_prune,
         pruning_method=prune.L1Unstructured,
@@ -219,6 +222,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         print('Saving the model.')
         for name, module in model.named_modules():
             if hasattr(module, 'weight_orig'):
+                print("removing pruning mask for : " , name)
                 prune.remove(module, 'weight')
 
 
