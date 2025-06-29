@@ -285,7 +285,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
         avg_psnr = avg_psnr / idx
         avg_inference_time = avg_inference_time / idx
-
+        iteraton_psnr = avg_psnr
 
         # testing log
         print('Average PSNR: {:.2f}dB'.format(avg_psnr))
