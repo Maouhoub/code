@@ -172,8 +172,8 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     for test_data in test_loader:
         idx += 1
-        #if idx == 10:
-        #    break
+        if idx == 21:
+            break
         image_name_ext = os.path.basename(test_data['L_path'][0])
         img_name, ext = os.path.splitext(image_name_ext)
 
@@ -205,9 +205,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
         avg_psnr += current_psnr
 
-        avg_psnr = avg_psnr / idx
-        avg_inference_time = avg_inference_time / idx
-        iteraton_psnr = avg_psnr
+    avg_psnr = avg_psnr / idx
+    avg_inference_time = avg_inference_time / idx
+
 
         # testing log
     print('Average PSNR: {:.2f}dB'.format(avg_psnr))
