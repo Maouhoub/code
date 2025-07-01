@@ -3,12 +3,11 @@ import math
 import argparse
 import random
 import numpy as np
-import torch
-import torch.nn as nn
 import logging
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch
+import time
 
 from utils import utils_logger
 from utils import utils_image as util
@@ -154,75 +153,67 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     '''
 
     model = define_Model(opt)
-
-    def print_sparsity(model):
-        total_params = 0
-        zero_params = 0
-        
-        for name, module in model.named_modules():
-            if isinstance(module, (nn.Conv2d, nn.Linear)):
-                params = module.weight.numel()
-                print(module.weight.data)
-                zeros = torch.sum(module.weight.data == 0).item()
-                
-                #print(f"{name}: {zeros}/{params} zeros ({100*zeros/params:.2f}%)")
-                
-                total_params += params
-                zero_params += zeros
-        
-        print(f"\nGlobal sparsity: {100*zero_params/total_params:.2f}%")
-
-    # Compare before/after pruning
-    print("== Before Pruning ==")
-    print_sparsity(model)
+    model.init_train()
+    #if opt['rank'] == 0:
+        #print(model.info_network())
+        #print(model.info_params())
 
 
-
-    return
     
-    # -------------------------------
-    # 6) testing
-    # -------------------------------
-    if opt['rank'] == 0:
+   
 
-        avg_psnr = 0.0
-        idx = 0
+        # -------------------------------
+        # 6) testing
+        # -------------------------------
+    
+    avg_psnr = 0.0
+    avg_inference_time = 0.0
+    idx = 0
 
-        for test_data in test_loader:
-            idx += 1
-            image_name_ext = os.path.basename(test_data['L_path'][0])
-            img_name, ext = os.path.splitext(image_name_ext)
+    for test_data in test_loader:
+        idx += 1
+        #if idx == 10:
+        #    break
+        image_name_ext = os.path.basename(test_data['L_path'][0])
+        img_name, ext = os.path.splitext(image_name_ext)
 
-            img_dir = os.path.join(opt['path']['images'], img_name)
-            util.mkdir(img_dir)
+        img_dir = os.path.join(opt['path']['images'], img_name)
+        util.mkdir(img_dir)
 
-            model.feed_data(test_data)
-            model.test()
+        model.feed_data(test_data)
+        start_time = time.time()
+        model.test()
+        end_time = time.time()
+        avg_inference_time = avg_inference_time +end_time - start_time
 
-            visuals = model.current_visuals()
-            E_img = util.tensor2uint(visuals['E'])
-            H_img = util.tensor2uint(visuals['H'])
+        visuals = model.current_visuals()
+        E_img = util.tensor2uint(visuals['E'])
+        H_img = util.tensor2uint(visuals['H'])
 
-            # -----------------------
-            # save estimated image E
-            # -----------------------
-            save_img_path = os.path.join(img_dir, '{:s}_{:d}.png'.format(img_name, current_step))
-            util.imsave(E_img, save_img_path)
+        # -----------------------
+        # save estimated image E
+        # -----------------------
+        save_img_path = os.path.join(img_dir, '{:s}_{:d}.png'.format(img_name, current_step))
+        util.imsave(E_img, save_img_path)
 
-            # -----------------------
-            # calculate PSNR
-            # -----------------------
-            current_psnr = util.calculate_psnr(E_img, H_img, border=border)
+        # -----------------------
+        # calculate PSNR
+        # -----------------------
+        current_psnr = util.calculate_psnr(E_img, H_img, border=border)
 
-            print('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
+        print('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
 
-            avg_psnr += current_psnr
+        avg_psnr += current_psnr
 
         avg_psnr = avg_psnr / idx
+        avg_inference_time = avg_inference_time / idx
+        iteraton_psnr = avg_psnr
 
         # testing log
-        print('<epoch:{:3d}, iter:{:8,d}, Average PSNR : {:<.2f}dB\n'.format(epoch, current_step, avg_psnr))
+    print('Average PSNR: {:.2f}dB'.format(avg_psnr))
+    print('Average inference time: {:.4f}s'.format(avg_inference_time))
+    print("model sparsity : ", util.compute_sparsity(model))
 
-
+    
 if __name__ == '__main__':
     main()
