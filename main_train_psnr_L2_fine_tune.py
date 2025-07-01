@@ -229,18 +229,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 message += '{:s}: {:.3e} '.format(k, v)
             print(message)
 
-        # -------------------------------
-        # 5) save model
-        # -------------------------------
-        if opt['rank'] == 0:
-            print('Saving the model.')
-            for name, module in model.named_modules():
-                if hasattr(module, 'weight_orig'):
-                    print("removing pruning mask for : " , name)
-                    prune.remove(module, 'weight')
 
-
-            model.save(pruning_iteration)
 
         # -------------------------------
         # 6) testing
@@ -294,6 +283,18 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         print('Average inference time: {:.4f}s'.format(avg_inference_time))
         print("model sparsity : ", util.compute_sparsity(model))
 
+    
+        # -------------------------------
+    # 5) save model
+    # -------------------------------
+    if opt['rank'] == 0:
+        print('Saving the model.')
+        for name, module in model.named_modules():
+            if hasattr(module, 'weight_orig'):
+                print("removing pruning mask for : " , name)
+                prune.remove(module, 'weight')
 
+
+    model.save(0)
 if __name__ == '__main__':
     main()
