@@ -164,7 +164,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     iteraton_psnr = 1000
 
-    while iteraton_psnr > 34.75:
+    while iteraton_psnr > 34.45:
         pruning_iteration += 1
 
         print("pruning iteration : " , pruning_iteration)
