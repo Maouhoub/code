@@ -181,7 +181,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         prune.global_unstructured(
             params_to_prune,
             pruning_method=prune.L1Unstructured,
-            amount=0.10  # or whatever % you need
+            amount=0.05  # or whatever % you need
     )
         '''
         # ----------------------------------------
