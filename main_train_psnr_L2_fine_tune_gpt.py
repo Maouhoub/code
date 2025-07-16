@@ -170,7 +170,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         print("Params to prune: ", params_to_prune)
 
         # Dynamic pruning amount based on iteration
-        pruning_amount = max(0.05 - (pruning_iteration * 0.005), 0.01)
+        pruning_amount = max(0.05 - ((pruning_iteration - 1) * 0.005), 0.01)
 
 
         print("pruning amount : ", pruning_amount)
