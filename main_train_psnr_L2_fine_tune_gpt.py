@@ -190,6 +190,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         print("Fine-tuning epochs: ", e_pochs)
 
         for epoch in range(e_pochs):
+            print("epoch : ", epoch)
             if opt['dist']:
                 train_sampler.set_epoch(epoch + seed)
 
