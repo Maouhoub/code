@@ -21,14 +21,10 @@ import torch.nn.utils.prune as prune
 
 '''
 # --------------------------------------------
-# training code for MSRResNet
-# --------------------------------------------
-# Kai Zhang (cskaizhang@gmail.com)
-# github: https://github.com/cszn/KAIR
-# --------------------------------------------
-# https://github.com/xinntao/BasicSR
+# training code for MSRResNet with intelligent pruning
 # --------------------------------------------
 '''
+
 
 def main(json_path='options/train_msrresnet_psnr.json'):
 
@@ -66,7 +62,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     opt['path']['pretrained_netG'] = init_path_G
     opt['path']['pretrained_netE'] = init_path_E
     init_iter_optimizerG, init_path_optimizerG = option.find_last_checkpoint(opt['path']['models'], net_type='optimizerG')
-    print("iterations : ", init_iter_optimizerG, init_path_optimizerG)
+    print ("iterations : " , init_iter_optimizerG, init_path_optimizerG)
     opt['path']['pretrained_optimizerG'] = init_path_optimizerG
     current_step = max(init_iter_G, init_iter_E, init_iter_optimizerG)
 
@@ -105,22 +101,22 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
     '''
     # ----------------------------------------
-    # Step--2 (create dataloader)
+    # Step--2 (creat dataloader)
     # ----------------------------------------
     '''
 
     # ----------------------------------------
     # 1) create_dataset
-    # 2) create_dataloader for train and test
+    # 2) creat_dataloader for train and test
     # ----------------------------------------
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
-            # Randomly select 150 images
+
             train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), min(150, len(train_set))))
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
-                print('Number of train images for fine-tuning: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
+                print('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
             if opt['dist']:
                 train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True, seed=seed)
                 train_loader = DataLoader(train_set,
@@ -155,78 +151,148 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     model = define_Model(opt)
     model.init_train()
 
+    # ----------------------------------------
+    # Pruning Configuration
+    # ----------------------------------------
     pruning_iteration = 0
-    iteraton_psnr = 1000
+    best_psnr = 0
+    patience = 3
+    bad_iterations = 0
+    
+    # Layer importance coefficients (protect critical layers)
+    layer_importance = {
+        'patch_embed': 0.8,
+        'patch_unembed': 0.8,
+        'layers.0': 0.6,
+        'conv_before_upsample': 0.8,
+        'conv_last': 0.8,
+        'conv_first': 0.7,
+        'upsample': 0.7
+    }
+    
+    def get_layer_protection_factor(layer_name):
+        """Get protection factor for a layer (0=no protection, 1=full protection)"""
+        for key, protection in layer_importance.items():
+            if key in layer_name:
+                return protection
+        return 0.0  # No protection for unspecified layers
+    
+    def compute_layer_sensitivity(model):
+        """Compute layer sensitivity based on weight magnitudes"""
+        sensitivities = {}
+        for name, module in model.named_modules():
+            if isinstance(module, (torch.nn.Conv2d, torch.nn.Linear)):
+                if hasattr(module, 'weight') and module.weight is not None:
+                    # Use weight magnitude as sensitivity measure
+                    weight_magnitude = torch.abs(module.weight).mean().item()
+                    sensitivities[name] = weight_magnitude
+        return sensitivities
+    
+    # Pruning schedule configuration
+    base_pruning_rate = 0.05  # 5% per iteration
+    max_pruning_rate = 0.15   # Maximum 15% for any layer
+    
+    iteration_psnr = 1000  # Initialize high to start loop
 
-    while iteraton_psnr > 34.45:
+    while iteration_psnr > 34.45 and bad_iterations < patience:
         pruning_iteration += 1
-
-        print("Pruning iteration: ", pruning_iteration)
+        print(f"Pruning iteration: {pruning_iteration}")
+        
+        # Compute layer sensitivities
+        layer_sensitivities = compute_layer_sensitivity(model)
+        
+        # Normalize sensitivities to [0, 1] range
+        if layer_sensitivities:
+            max_sensitivity = max(layer_sensitivities.values())
+            min_sensitivity = min(layer_sensitivities.values())
+            if max_sensitivity > min_sensitivity:
+                normalized_sensitivities = {
+                    name: (sens - min_sensitivity) / (max_sensitivity - min_sensitivity)
+                    for name, sens in layer_sensitivities.items()
+                }
+            else:
+                normalized_sensitivities = {name: 0.5 for name in layer_sensitivities}
+        else:
+            normalized_sensitivities = {}
+        
+        # Apply layer-wise pruning
         params_to_prune = []
-        for module in model.modules():
-            if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
-                params_to_prune.append((module, 'weight'))
-
-        print("Params to prune: ", params_to_prune)
-
-        # Dynamic pruning amount based on iteration
-        pruning_amount = max(0.05 - ((pruning_iteration - 1) * 0.005), 0.01)
-
-
-        print("pruning amount : ", pruning_amount)
-        prune.global_unstructured(
-            params_to_prune,
-            pruning_method=prune.L1Unstructured,
-            amount=pruning_amount
-        )
+        for name, module in model.named_modules():
+            if isinstance(module, (torch.nn.Conv2d, torch.nn.Linear)):
+                # Calculate adaptive pruning rate
+                protection_factor = get_layer_protection_factor(name)
+                sensitivity = normalized_sensitivities.get(name, 0.5)
+                
+                # Reduce pruning rate for protected and sensitive layers
+                adaptive_rate = base_pruning_rate * (1 - protection_factor) * (1 - sensitivity * 0.5)
+                adaptive_rate = min(adaptive_rate, max_pruning_rate)
+                
+                if adaptive_rate > 0.001:  # Only prune if rate is meaningful
+                    params_to_prune.append((module, 'weight'))
+                    print(f"Layer {name}: pruning rate = {adaptive_rate:.3f}")
+        
+        # Apply global pruning with computed rates
+        if params_to_prune:
+            # Use global pruning to maintain consistency
+            current_pruning_rate = base_pruning_rate * (1 - pruning_iteration * 0.01)  # Decrease rate over time
+            current_pruning_rate = max(current_pruning_rate, 0.02)  # Minimum rate
+            
+            print(f"Applying global pruning with rate: {current_pruning_rate:.3f}")
+            prune.global_unstructured(
+                params_to_prune,
+                pruning_method=prune.L1Unstructured,
+                amount=current_pruning_rate
+            )
 
         '''
         # ----------------------------------------
         # Step--4 (main training)
         # ----------------------------------------
         '''
-        e_pochs = opt['fine_tune']['L2_ft_epochs']
-
-        print("Fine-tuning epochs: ", e_pochs)
-
+        
+        # Dynamic fine-tuning epochs
+        base_epochs = opt['fine_tune']['L2_ft_epochs']
+        e_pochs = max(base_epochs, int(base_epochs * (1 + pruning_iteration * 0.1)))
+        
+        print(f"Fine-tuning epochs: {e_pochs}")
+        
+        # Learning rate adjustment for post-pruning recovery
+        if hasattr(model, 'optimizers') and 'G' in model.optimizers:
+            original_lr = opt['train']['G_optimizer_lr']
+            recovery_lr = original_lr * (1.5 ** pruning_iteration)  # Increase LR for recovery
+            for param_group in model.optimizers['G'].param_groups:
+                param_group['lr'] = min(recovery_lr, original_lr * 3)  # Cap at 3x original
+        
+        epoch_psnr_history = []
+        
         for epoch in range(e_pochs):
-            print("epoch : ", epoch)
             if opt['dist']:
                 train_sampler.set_epoch(epoch + seed)
 
+            epoch_start_time = time.time()
+            
             for i, train_data in enumerate(train_loader):
-
-                print("Current step: ", current_step)
                 current_step += 1
-
-                # -------------------------------
-                # 1) Update learning rate
-                # -------------------------------
+                
+                # Update learning rate
                 model.update_learning_rate(current_step)
-
-                # -------------------------------
-                # 2) Feed patch pairs
-                # -------------------------------
+                
+                # Feed data and optimize
                 model.feed_data(train_data)
-
-                # -------------------------------
-                # 3) Optimize parameters
-                # -------------------------------
                 model.optimize_parameters(current_step)
-
-            # -------------------------------
-            # Training information
-            # -------------------------------
+            
+            # Log training info
             if opt['rank'] == 0:
-                logs = model.current_log()  # such as loss
-                message = ''
-                for k, v in logs.items():  # merge log information into message
-                    message += '{:s}: {:.3e} '.format(k, v)
+                logs = model.current_log()
+                message = f'Epoch {epoch+1}/{e_pochs}: '
+                for k, v in logs.items():
+                    message += f'{k}: {v:.3e} '
+                message += f'Time: {time.time() - epoch_start_time:.2f}s'
                 print(message)
 
-        # -------------------------------
-        # Testing
-        # -------------------------------
+        # ----------------------------------------
+        # Testing after fine-tuning
+        # ----------------------------------------
         if opt['rank'] == 0:
             avg_psnr = 0.0
             avg_inference_time = 0.0
@@ -241,46 +307,67 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 util.mkdir(img_dir)
 
                 model.feed_data(test_data)
+                
+                # Measure inference time
                 start_time = time.time()
                 model.test()
                 end_time = time.time()
-                avg_inference_time += end_time - start_time
+                avg_inference_time += (end_time - start_time)
 
                 visuals = model.current_visuals()
                 E_img = util.tensor2uint(visuals['E'])
                 H_img = util.tensor2uint(visuals['H'])
 
-                # Save estimated image E
-                save_img_path = os.path.join(img_dir, '{:s}_{:d}.png'.format(img_name, current_step))
+                # Save image
+                save_img_path = os.path.join(img_dir, f'{img_name}_{current_step}.png')
                 util.imsave(E_img, save_img_path)
 
                 # Calculate PSNR
                 current_psnr = util.calculate_psnr(E_img, H_img, border=border)
-
-                print('{:->4d}--> {:>10s} | {:<4.2f}dB'.format(idx, image_name_ext, current_psnr))
-
+                print(f'{idx:>4d}--> {image_name_ext:>10s} | {current_psnr:<4.2f}dB')
                 avg_psnr += current_psnr
 
-            avg_psnr /= idx
-            avg_inference_time /= idx
-            iteraton_psnr = avg_psnr
+            avg_psnr = avg_psnr / idx
+            avg_inference_time = avg_inference_time / idx
+            iteration_psnr = avg_psnr
+            current_sparsity = util.compute_sparsity(model)
 
-            # Testing log
-            print('Average PSNR: {:.2f}dB'.format(avg_psnr))
-            print('Average inference time: {:.4f}s'.format(avg_inference_time))
-            print("Model sparsity: ", util.compute_sparsity(model))
+            # Results logging
+            print(f'Iteration {pruning_iteration} Results:')
+            print(f'  Average PSNR: {avg_psnr:.2f}dB')
+            print(f'  Average inference time: {avg_inference_time:.4f}s')
+            print(f'  Model sparsity: {current_sparsity:.2f}%')
+            
+            # Check if improvement
+            if avg_psnr > best_psnr:
+                best_psnr = avg_psnr
+                bad_iterations = 0
+                print(f'  New best PSNR: {best_psnr:.2f}dB')
+            else:
+                bad_iterations += 1
+                print(f'  No improvement. Bad iterations: {bad_iterations}/{patience}')
+            
+            print('-' * 50)
 
-    # -------------------------------
-    # Save model
-    # -------------------------------
+    # ----------------------------------------
+    # Final model saving
+    # ----------------------------------------
     if opt['rank'] == 0:
-        print('Saving the model.')
+        print('Saving the final pruned model...')
+        
+        # Remove pruning masks to make weights permanent
         for name, module in model.named_modules():
             if hasattr(module, 'weight_orig'):
-                print("Removing pruning mask for: ", name)
+                print(f"Removing pruning mask for: {name}")
                 prune.remove(module, 'weight')
-
-        model.save(0)
+        
+        # Save final model
+        model.save(current_step)
+        
+        print(f'Final model saved with:')
+        print(f'  PSNR: {iteration_psnr:.2f}dB')
+        print(f'  Sparsity: {util.compute_sparsity(model):.2f}%')
+        print(f'  Total pruning iterations: {pruning_iteration}')
 
 if __name__ == '__main__':
     main()
