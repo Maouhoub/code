@@ -194,7 +194,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     
     iteration_psnr = 1000  # Initialize high to start loop
 
-    while iteration_psnr > 34.45 and bad_iterations < patience:
+    while iteration_psnr > 34.45:# and bad_iterations < patience:
         pruning_iteration += 1
         print(f"Pruning iteration: {pruning_iteration}")
         
@@ -263,7 +263,6 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             for param_group in model.optimizers['G'].param_groups:
                 param_group['lr'] = min(recovery_lr, original_lr * 3)  # Cap at 3x original
         
-        epoch_psnr_history = []
         
         for epoch in range(e_pochs):
             if opt['dist']:
