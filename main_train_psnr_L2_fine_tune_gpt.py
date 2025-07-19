@@ -113,7 +113,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
 
-            train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), min(150, len(train_set))))
+            train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), min(550, len(train_set))))
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
                 print('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
@@ -256,6 +256,12 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         
         print(f"Fine-tuning epochs: {e_pochs}")
         
+        # Early stopping setup
+        best_loss = float('inf')
+        patience = 5  # Number of epochs to wait for improvement
+        patience_counter = 0
+        min_delta = 1e-4  # Minimum change to qualify as an improvement
+        
         # Learning rate adjustment for post-pruning recovery
         if hasattr(model, 'optimizers') and 'G' in model.optimizers:
             original_lr = opt['train']['G_optimizer_lr']
@@ -283,11 +289,25 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             # Log training info
             if opt['rank'] == 0:
                 logs = model.current_log()
+                current_loss = logs.get('G_loss', float('inf'))
+                
+                # Early stopping check
+                if current_loss < best_loss - min_delta:
+                    best_loss = current_loss
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                
                 message = f'Epoch {epoch+1}/{e_pochs}: '
                 for k, v in logs.items():
                     message += f'{k}: {v:.3e} '
                 message += f'Time: {time.time() - epoch_start_time:.2f}s'
                 print(message)
+                
+                # Early stopping condition
+                if patience_counter >= patience:
+                    print(f'Early stopping triggered after {epoch + 1} epochs')
+                    break
 
         # ----------------------------------------
         # Testing after fine-tuning
