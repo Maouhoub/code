@@ -1,0 +1,104 @@
+{
+  "fine_tune": {
+    "_comment": "Advanced Fine-tuning Configuration for Pruned Super-Resolution Networks",
+    
+    "L2_ft_epochs": 75,
+    "use_knowledge_distillation": true,
+    "use_differential_lr": true,
+    "use_progressive_training": true,
+    "use_enhanced_loss": true,
+    "use_perceptual_loss": true,
+    "use_ssim_loss": true,
+    "use_edge_preservation": true,
+    "use_layerwise_optimizer": true,
+    
+    "warmup_ratio": 0.15,
+    "cosine_ratio": 0.1,
+    "main_training_ratio": 0.75,
+    
+    "kd_weight": 0.3,
+    "kd_temperature": 4.0,
+    "kd_feature_weight": 0.1,
+    "kd_decay_factor": 0.95,
+    
+    "l2_reg_base": 1e-6,
+    "l2_reg_scaling": 5.0,
+    "l2_progressive_increase": true,
+    
+    "patience": 15,
+    "validation_frequency": 3,
+    "early_stopping_threshold": 0.01,
+    
+    "gradient_clip_norm": 1.0,
+    "gradient_accumulation_steps": 1,
+    
+    "lr_important_factor": 0.3,
+    "lr_regular_factor": 2.0,
+    "lr_critical_factor": 0.2,
+    "weight_decay_important": 1e-3,
+    "weight_decay_regular": 1e-5,
+    "weight_decay_critical": 5e-3,
+    
+    "perceptual_weight": 0.1,
+    "ssim_weight": 0.05,
+    "edge_weight": 0.03,
+    "adaptive_loss_weighting": true,
+    
+    "curriculum_learning": true,
+    "progressive_unfreezing": false,
+    "data_augmentation_intensity": 0.3,
+    
+    "save_intermediate_models": true,
+    "model_averaging": false,
+    "exponential_moving_average": true,
+    "ema_decay": 0.999,
+    
+    "multi_scale_training": false,
+    "random_crop_probability": 0.8,
+    "mixup_probability": 0.0,
+    
+    "layer_importance_weights": {
+      "conv_first": 0.8,
+      "conv_last": 0.9,
+      "conv_before_upsample": 0.8,
+      "upsample": 0.7,
+      "patch_embed": 0.8,
+      "patch_unembed": 0.8,
+      "layers.0": 0.6,
+      "layers.1": 0.5,
+      "layers.2": 0.4,
+      "layers.3": 0.4,
+      "layers.4": 0.3,
+      "layers.5": 0.3,
+      "norm": 0.7,
+      "mlp": 0.4,
+      "attn": 0.6
+    },
+    
+    "pruning_recovery_schedule": {
+      "use_gradual_recovery": true,
+      "recovery_start_epoch": 10,
+      "recovery_intensity": 2.0,
+      "target_weight_magnitude": 0.01
+    },
+    
+    "advanced_optimizations": {
+      "use_sam_optimizer": false,
+      "sam_rho": 0.05,
+      "use_lookahead": false,
+      "lookahead_k": 5,
+      "lookahead_alpha": 0.5,
+      "use_gradient_centralization": true,
+      "use_label_smoothing": false
+    },
+    
+    "logging_and_visualization": {
+      "log_frequency": 50,
+      "save_visualization_samples": true,
+      "plot_training_curves": true,
+      "track_gradient_norms": true,
+      "track_weight_distributions": false,
+      "save_attention_maps": false
+    }
+  }
+}

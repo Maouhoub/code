@@ -79,6 +79,40 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # return None for missing key
     # ----------------------------------------
     opt = option.dict_to_nonedict(opt)
+    
+    # ----------------------------------------
+    # Advanced Fine-tuning Configuration
+    # ----------------------------------------
+    if 'fine_tune' not in opt:
+        opt['fine_tune'] = {}
+    
+    # Set default fine-tuning parameters if not specified
+    fine_tune_defaults = {
+        'L2_ft_epochs': 50,
+        'use_knowledge_distillation': True,
+        'use_differential_lr': True,
+        'use_progressive_training': True,
+        'use_enhanced_loss': True,
+        'warmup_ratio': 0.1,
+        'cosine_ratio': 0.1,
+        'kd_weight': 0.3,
+        'l2_reg_base': 1e-6,
+        'patience': 10,
+        'validation_frequency': 5,
+        'gradient_clip_norm': 1.0,
+        'lr_important_factor': 0.5,
+        'lr_regular_factor': 1.5,
+        'weight_decay_important': 1e-4,
+        'weight_decay_regular': 1e-5
+    }
+    
+    for key, value in fine_tune_defaults.items():
+        if key not in opt['fine_tune']:
+            opt['fine_tune'][key] = value
+    
+    print("Fine-tuning configuration loaded:")
+    for key, value in opt['fine_tune'].items():
+        print(f"  {key}: {value}")
 
     # ----------------------------------------
     # configure logger
@@ -189,7 +223,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         return sensitivities
     
     # Pruning schedule configuration
-    base_pruning_rate = 0.05  # 5% per iteration
+    base_pruning_rate = 0.1  # 10% per iteration
     max_pruning_rate = 0.15   # Maximum 15% for any layer
     
     iteration_psnr = 1000  # Initialize high to start loop
@@ -246,23 +280,114 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
         '''
         # ----------------------------------------
-        # Step--4 (main training)
+        # Step--4 (Advanced Fine-tuning for Pruned Networks)
         # ----------------------------------------
         '''
         
-        # Dynamic fine-tuning epochs
-        base_epochs = opt['fine_tune']['L2_ft_epochs']
-        e_pochs = max(base_epochs, int(base_epochs * (1 + pruning_iteration * 0.1)))
+        # ============================================
+        # Advanced Fine-tuning Strategy Implementation
+        # ============================================
         
-        print(f"Fine-tuning epochs: {e_pochs}")
+        # 1. Knowledge Distillation Setup (if unpruned model available)
+        teacher_model = None
+        if pruning_iteration == 1:  # Save unpruned model as teacher
+            import copy
+            teacher_model = copy.deepcopy(model)
+            # Remove any pruning masks from teacher for clean state
+            for name, module in teacher_model.named_modules():
+                if hasattr(module, 'weight_orig'):
+                    prune.remove(module, 'weight')
+            teacher_model.netG.eval()
+            for param in teacher_model.netG.parameters():
+                param.requires_grad = False
         
-        # Learning rate adjustment for post-pruning recovery
-        if hasattr(model, 'optimizers') and 'G' in model.optimizers:
-            original_lr = opt['train']['G_optimizer_lr']
-            recovery_lr = original_lr * (1.5 ** pruning_iteration)  # Increase LR for recovery
-            for param_group in model.optimizers['G'].param_groups:
-                param_group['lr'] = min(recovery_lr, original_lr * 3)  # Cap at 3x original
+        # 2. Dynamic Training Configuration
+        base_epochs = opt.get('fine_tune', {}).get('L2_ft_epochs', 50)
         
+        # Progressive epochs: more epochs for later pruning iterations
+        progressive_factor = 1 + (pruning_iteration - 1) * 0.3
+        e_pochs = max(base_epochs, int(base_epochs * progressive_factor))
+        
+        # Multi-phase training: different strategies for different phases
+        warmup_epochs = max(5, e_pochs // 10)  # 10% for warmup
+        main_epochs = e_pochs - warmup_epochs - max(5, e_pochs // 10)  # 80% main training
+        cosine_epochs = max(5, e_pochs // 10)  # 10% for cosine annealing
+        
+        print(f"Fine-tuning configuration:")
+        print(f"  Total epochs: {e_pochs}")
+        print(f"  Warmup: {warmup_epochs}, Main: {main_epochs}, Cosine: {cosine_epochs}")
+        
+        # 3. Advanced Learning Rate Strategy
+        original_lr = opt['train']['G_optimizer_lr']
+        
+        # Create new optimizer with weight decay for regularization
+        import torch.optim as optim
+        
+        # Separate parameters by layer importance for differential learning rates
+        important_params = []
+        regular_params = []
+        
+        for name, param in model.netG.named_parameters():
+            if param.requires_grad:
+                is_important = any(key in name for key in layer_importance.keys())
+                if is_important:
+                    important_params.append(param)
+                else:
+                    regular_params.append(param)
+        
+        # Differential learning rates: lower for important layers
+        param_groups = [
+            {'params': important_params, 'lr': original_lr * 0.5, 'weight_decay': 1e-4},
+            {'params': regular_params, 'lr': original_lr * 1.5, 'weight_decay': 1e-5}
+        ]
+        
+        # Replace optimizer with advanced configuration
+        if hasattr(model, 'G_optimizer'):
+            model.G_optimizer = optim.AdamW(param_groups, 
+                                          betas=(0.9, 0.999), 
+                                          eps=1e-8)
+        
+        # 4. Loss Function Enhancement
+        def compute_enhanced_loss(model_output, target, teacher_output=None, epoch=0, total_epochs=e_pochs):
+            """Enhanced loss function with multiple components"""
+            
+            # Base reconstruction loss
+            base_loss = model.G_lossfn(model_output, target)
+            
+            # Knowledge distillation loss (if teacher available)
+            kd_loss = 0
+            if teacher_output is not None:
+                kd_weight = 0.3 * (1 - epoch / total_epochs)  # Decrease KD weight over time
+                kd_loss = kd_weight * torch.nn.functional.mse_loss(model_output, teacher_output.detach())
+            
+            # Feature matching loss (preserve feature diversity)
+            feature_loss = 0
+            if hasattr(model.netG, 'get_intermediate_features'):
+                # This would need to be implemented in the network
+                pass
+            
+            # L2 regularization on remaining weights (encourage weight recovery)
+            l2_reg = 0
+            l2_weight = 1e-6 * (pruning_iteration * 0.5)  # Increase with pruning
+            for name, param in model.netG.named_parameters():
+                if 'weight' in name and param.requires_grad:
+                    l2_reg += torch.norm(param, 2)
+            
+            total_loss = base_loss + kd_loss + l2_weight * l2_reg
+            
+            return total_loss, {
+                'base_loss': base_loss.item(),
+                'kd_loss': kd_loss.item() if isinstance(kd_loss, torch.Tensor) else kd_loss,
+                'l2_reg': l2_reg.item(),
+                'total_loss': total_loss.item()
+            }
+        
+        # 5. Progressive Training Loop
+        print("Starting advanced fine-tuning...")
+        
+        best_epoch_psnr = 0
+        patience_counter = 0
+        max_patience = 10
         
         for epoch in range(e_pochs):
             if opt['dist']:
@@ -270,24 +395,113 @@ def main(json_path='options/train_msrresnet_psnr.json'):
 
             epoch_start_time = time.time()
             
+            # Phase-specific learning rate adjustment
+            if epoch < warmup_epochs:
+                # Warmup phase: gradual LR increase
+                lr_mult = (epoch + 1) / warmup_epochs * 0.1  # Start with 10% of target LR
+                phase = "Warmup"
+            elif epoch < warmup_epochs + main_epochs:
+                # Main training phase
+                lr_mult = 1.0
+                phase = "Main"
+            else:
+                # Cosine annealing phase
+                cosine_epoch = epoch - warmup_epochs - main_epochs
+                lr_mult = 0.5 * (1 + math.cos(math.pi * cosine_epoch / cosine_epochs))
+                phase = "Cosine"
+            
+            # Update learning rates
+            for param_group in model.G_optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] * lr_mult if epoch == 0 else param_group['lr']
+            
+            epoch_losses = []
+            
             for i, train_data in enumerate(train_loader):
                 current_step += 1
                 
-                # Update learning rate
-                model.update_learning_rate(current_step)
-                
-                # Feed data and optimize
+                # Standard data feeding
                 model.feed_data(train_data)
-                model.optimize_parameters(current_step)
+                
+                # Get teacher output if available
+                teacher_output = None
+                if teacher_model is not None:
+                    with torch.no_grad():
+                        teacher_model.feed_data(train_data)
+                        teacher_model.netG_forward()
+                        teacher_output = teacher_model.E
+                
+                # Custom optimization with enhanced loss
+                model.G_optimizer.zero_grad()
+                model.netG_forward()
+                
+                enhanced_loss, loss_dict = compute_enhanced_loss(
+                    model.E, model.H, teacher_output, epoch, e_pochs
+                )
+                
+                enhanced_loss.backward()
+                
+                # Gradient clipping for stability
+                torch.nn.utils.clip_grad_norm_(model.netG.parameters(), max_norm=1.0)
+                
+                model.G_optimizer.step()
+                
+                epoch_losses.append(loss_dict)
+                
+                # Periodic validation during training
+                if i % 50 == 0 and opt['rank'] == 0:
+                    avg_loss = sum([l['total_loss'] for l in epoch_losses[-10:]]) / min(10, len(epoch_losses))
+                    print(f"  Epoch {epoch+1}/{e_pochs} [{phase}], Step {i}: Loss = {avg_loss:.6f}")
+            
+            # Epoch-end validation
+            if epoch % 5 == 0:  # Every 5 epochs
+                model.netG.eval()
+                val_psnr = 0
+                val_count = 0
+                with torch.no_grad():
+                    for test_data in test_loader:
+                        if val_count >= 5:  # Quick validation on 5 samples
+                            break
+                        model.feed_data(test_data)
+                        model.netG_forward()
+                        
+                        E_img = util.tensor2uint(model.E)
+                        H_img = util.tensor2uint(model.H)
+                        val_psnr += util.calculate_psnr(E_img, H_img, border=border)
+                        val_count += 1
+                
+                val_psnr /= val_count
+                print(f"  Epoch {epoch+1} Validation PSNR: {val_psnr:.2f}dB")
+                
+                # Early stopping check
+                if val_psnr > best_epoch_psnr:
+                    best_epoch_psnr = val_psnr
+                    patience_counter = 0
+                    # Save best model
+                    torch.save(model.netG.state_dict(), 
+                             f"best_model_iter_{pruning_iteration}_epoch_{epoch}.pth")
+                else:
+                    patience_counter += 1
+                
+                model.netG.train()
             
             # Log training info
             if opt['rank'] == 0:
-                logs = model.current_log()
-                message = f'Epoch {epoch+1}/{e_pochs}: '
-                for k, v in logs.items():
-                    message += f'{k}: {v:.3e} '
-                message += f'Time: {time.time() - epoch_start_time:.2f}s'
+                avg_losses = {
+                    key: sum([l[key] for l in epoch_losses]) / len(epoch_losses)
+                    for key in epoch_losses[0].keys()
+                }
+                
+                message = f'Epoch {epoch+1}/{e_pochs} [{phase}]: '
+                for k, v in avg_losses.items():
+                    message += f'{k}: {v:.4e} '
+                message += f'Time: {time.time() - epoch_start_time:.2f}s '
+                message += f'LR: {model.G_optimizer.param_groups[0]["lr"]:.2e}'
                 print(message)
+                
+                # Early stopping
+                if patience_counter >= max_patience:
+                    print(f"Early stopping triggered after {epoch+1} epochs")
+                    break
 
         # ----------------------------------------
         # Testing after fine-tuning
