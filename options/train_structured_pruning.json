@@ -1,91 +1,89 @@
 {
-  "task": "structured_pruning"
-  , "model": "plain"
-  , "gpu_ids": [0]
-  , "dist": false
-
-  , "scale": 4
-  , "n_channels": 3
-  , "sigma": 0
-  , "sigma_test": 0
-
-  , "merge_bn": false
-  , "merge_bn_startpoint": 400000
-
-  , "path": {
-    "root": "superresolution"
-    , "pretrained_netG": null
-    , "pretrained_netE": null
-  }
-
-  , "datasets": {
+  "task": "swinir_sr_lightweight_x2",
+  "model": "plain",
+  "gpu_ids": [
+    0
+  ],
+  "dist": true,
+  "rank": 0,
+  "scale": 2,
+  "n_channels": 3,
+  "path": {
+    "root": "superresolution",
+    "pretrained_netG": "wieights/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth",
+    "models": "wieights",
+    "pretrained_netE": null
+  },
+  "fine_tune": {
+    "L2_ft_epochs": 20
+  },
+  "datasets": {
     "train": {
-      "name": "train_dataset"
-      , "dataset_type": "sr"
-      , "dataroot_H": "trainsets/trainH"
-      , "dataroot_L": null
-      , "H_size": 96
-      , "dataloader_shuffle": true
-      , "dataloader_num_workers": 4
-      , "dataloader_batch_size": 16
+      "name": "train_dataset",
+      "dataset_type": "sr",
+      "dataroot_H": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_HR",
+      "dataroot_L": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_LR_bicubic/X2",
+      "H_size": 128,
+      "dataloader_shuffle": true,
+      "dataloader_num_workers": 2,
+      "dataloader_batch_size": 64
+    },
+    "test": {
+      "name": "test_dataset",
+      "dataset_type": "sr",
+      "dataroot_H": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_HR",
+      "dataroot_L": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_LR_bicubic/X2"
     }
-    , "test": {
-      "name": "test_dataset"
-      , "dataset_type": "sr"
-      , "dataroot_H": "testsets/set5"
-      , "dataroot_L": null
-    }
-  }
-
-  , "netG": {
-    "net_type": "swinir"
-    , "in_nc": 3
-    , "out_nc": 3
-    , "nc": 180
-    , "nb": 4
-    , "upscale": 4
-    , "img_size": 64
-    , "window_size": 8
-    , "img_range": 1.0
-    , "depths": [6, 6, 6, 6]
-    , "embed_dim": 180
-    , "num_heads": [6, 6, 6, 6]
-    , "mlp_ratio": 2
-    , "upsampler": "pixelshuffledirect"
-    , "resi_connection": "1conv"
-  }
-
-  , "train": {
-    "G_lossfn_type": "l1"
-    , "G_lossfn_weight": 1.0
-
-    , "G_optimizer_type": "adam"
-    , "G_optimizer_lr": 2e-4
-    , "G_optimizer_wd": 0
-    , "G_optimizer_clipgrad": null
-    , "G_optimizer_reuse": true
-
-    , "G_scheduler_type": "MultiStepLR"
-    , "G_scheduler_milestones": [250000, 400000, 450000, 475000]
-    , "G_scheduler_gamma": 0.5
-
-    , "G_regularizer_orthstep": null
-    , "G_regularizer_clipstep": null
-
-    , "G_param_strict": true
-    , "E_param_strict": true
-
-    , "checkpoint_test": 5000
-    , "checkpoint_save": 5000
-    , "checkpoint_print": 200
-  }
-
-  , "fine_tune": {
-    "L2_ft_epochs": 5
-    , "sparsity_epochs": 3
-    , "lambda_l1": 1e-4
-    , "target_psnr": 34.45
-    , "max_pruning_iterations": 5
-    , "prune_ratio_per_iteration": 0.15
+  },
+  "netG": {
+    "net_type": "swinir",
+    "upscale": 2,
+    "in_chans": 3,
+    "img_size": 64,
+    "window_size": 8,
+    "img_range": 1.0,
+    "depths": [
+      6,
+      6,
+      6,
+      6
+    ],
+    "embed_dim": 60,
+    "num_heads": [
+      6,
+      6,
+      6,
+      6
+    ],
+    "mlp_ratio": 2,
+    "upsampler": "pixelshuffledirect",
+    "resi_connection": "1conv",
+    "init_type": "default"
+  },
+  "train": {
+    "G_lossfn_type": "l1",
+    "G_lossfn_weight": 1.0,
+    "E_decay": 0,
+    "G_optimizer_type": "adam",
+    "G_optimizer_lr": 1e-5,
+    "G_optimizer_wd": 0,
+    "G_optimizer_clipgrad": null,
+    "G_optimizer_reuse": true,
+    "G_scheduler_type": "MultiStepLR",
+    "G_scheduler_milestones": [
+      250000,
+      400000,
+      450000,
+      475000,
+      500000
+    ],
+    "G_scheduler_gamma": 0.5,
+    "G_regularizer_orthstep": null,
+    "G_regularizer_clipstep": null,
+    "G_param_strict": true,
+    "E_param_strict": true,
+    "checkpoint_test": 5000,
+    "checkpoint_save": 5000,
+    "checkpoint_print": 200
   }
 }

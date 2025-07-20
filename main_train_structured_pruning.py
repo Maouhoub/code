@@ -22,6 +22,17 @@ from models.select_model import define_Model
 # --------------------------------------------
 # Structured Pruning + Knowledge Distillation for SwinIR
 # Based on contribution.txt methodology
+# 
+# Usage: python main_train_structured_pruning.py --opt options/swinir/train_swinir_sr_lightweight.json
+# 
+# Optional parameters in JSON config (add to existing config if needed):
+# "structured_pruning": {
+#     "target_psnr": 34.55,           // Target PSNR to maintain (default: 34.55)
+#     "max_iterations": 5,            // Max pruning iterations (default: 5)
+#     "prune_ratio_per_iteration": 0.15,  // % to prune each iteration (default: 0.15)
+#     "sparsity_lambda": 1e-4,        // L1 regularization strength (default: 1e-4)
+#     "sparsity_epochs": 3            // Epochs for sparsity training (default: 3)
+# }
 # --------------------------------------------
 '''
 
@@ -170,7 +181,7 @@ def apply_masks_to_model(model, masks):
                 lambda m, i, o, mn=mask_name: mask_mlp_hook(m, i, o, mn)
             )
 
-def main(json_path='options/train_structured_pruning.json'):
+def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     '''
     # ----------------------------------------
     # Step--1 (prepare opt)
@@ -295,11 +306,22 @@ def main(json_path='options/train_structured_pruning.json'):
     kd_loss = KnowledgeDistillationLoss(alpha=0.7, beta=0.3)
     
     # ----------------------------------------
-    # Structured Pruning Configuration
+    # Structured Pruning Configuration with Defaults
     # ----------------------------------------
-    target_psnr =  34.55
-    max_iterations = 5
-    prune_ratio_per_iteration = 0.15  # 15% as suggested in contribution.txt
+    
+    # Extract pruning parameters from config or use defaults
+    structured_pruning_config = opt.get('structured_pruning', {})
+    
+    target_psnr = structured_pruning_config.get('target_psnr', 34.55)  # 0.4dB drop from your 34.95 baseline
+    max_iterations = structured_pruning_config.get('max_iterations', 5)
+    prune_ratio_per_iteration = structured_pruning_config.get('prune_ratio_per_iteration', 0.15)  # 15% as in contribution.txt
+    sparsity_lambda = structured_pruning_config.get('sparsity_lambda', 1e-4)  # L1 regularization strength
+    
+    print(f"Structured Pruning Configuration:")
+    print(f"  Target PSNR: {target_psnr:.2f} dB")
+    print(f"  Max iterations: {max_iterations}")
+    print(f"  Prune ratio per iteration: {prune_ratio_per_iteration}")
+    print(f"  Sparsity lambda: {sparsity_lambda}")
     
     iteration_psnr = 1000  # Initialize high to start loop
     pruning_iteration = 0
@@ -314,7 +336,7 @@ def main(json_path='options/train_structured_pruning.json'):
         # Phase 1: Sparsity Training (L1 regularization on masks)
         # ----------------------------------------
         print("Phase 1: Training with sparsity regularization...")
-        sparsity_epochs = 3  # Short sparsity training
+        sparsity_epochs = structured_pruning_config.get('sparsity_epochs', 3)  # Short sparsity training from config or default
         
         for epoch in range(sparsity_epochs):
             if opt['dist']:
@@ -345,7 +367,7 @@ def main(json_path='options/train_structured_pruning.json'):
                 distill_loss = kd_loss(student_output, teacher_output)
                 
                 # Sparsity regularization on masks
-                sparsity_loss = apply_sparsity_regularization(pruning_masks, lambda_l1=1e-4)
+                sparsity_loss = apply_sparsity_regularization(pruning_masks, lambda_l1=sparsity_lambda)
                 
                 # Combined loss
                 total_loss = distill_loss + sparsity_loss
