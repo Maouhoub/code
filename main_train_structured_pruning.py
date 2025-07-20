@@ -219,9 +219,9 @@ def main(json_path='options/train_structured_pruning.json'):
     # ----------------------------------------
     # seed
     # ----------------------------------------
-    seed = opt['train']['manual_seed']
-    if seed is None:
-        seed = random.randint(1, 10000)
+    #seed = opt['train']['manual_seed']
+
+    seed = random.randint(1, 10000)
     print('Random seed: {}'.format(seed))
     random.seed(seed)
     np.random.seed(seed)
