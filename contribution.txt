@@ -1,0 +1,156 @@
+Introduction
+Modern single-image super-resolution (SR) methods like SwinIR  (leverage windowed self-attention and
+residual blocks) achieve state-of-the-art quality but are computationally heavy. SwinIR’s “lightweight” variant
+(e.g. 4 RSTBs × 4 layers) already has fewer parameters , yet further efficiency gains are needed for edge
+deployment. Common model compression strategies include architecture design, knowledge distillation,
+quantization, or pruning. In fact, recent SR works show that combining techniques can be very effective –
+for example, DIPNet uses teacher-student distillation plus iterative L2 filter pruning to speed up RFDN
+networks, finding that iterative pruning with L2-norm preserves PSNR much better than one-shot L1
+pruning . Similarly, Wu et al. propose compressing SR models by (a) training with sparsity regularization
+(L1/OBProx) to find a desired density, then (b) choosing new hyperparameters (channels, layers, blocks) to
+match that density, and finally (c) fine-tuning with knowledge distillation from the full model . They
+applied this pipeline to SwinIR_lightweight, producing a “SwinIR_mini” with only ~98.8K parameters (vs
+878K) while recovering performance via distillation .
+Related Work: Pruning & Efficient SR
+Efficient SR architectures: Many works design compact SR networks (e.g. IMDN, RFDN) or dynamic
+scaling (e.g. multi-scale SR) for efficiency. GhostSR , for instance, shows that CNN-based SR
+networks contain redundant “ghost” features and uses shift operations to generate them, reducing
+parameters by ~46% with little PSNR loss . However, these focus on CNNs. DIPNet (CVPRW 2023)
+explicitly targets SR compression: it uses multi-anchor feature distillation to train a lightweight
+student, then iteratively prunes filters with an L2 criterion. In DIPNet, each pruning step removes
+5% of filters and is followed by fine-tuning; this iterative L2 pruning yields better PSNR than one-shot
+pruning (e.g. ~29.00?dB vs 28.89?dB on DIV2K) . GhostSR, DIPNet, and others underscore that
+combining pruning with distillation/reparameterization can preserve quality.
+Pruning in Vision Transformers: In parallel, efficient “vision transformer” (ViT/Swin) compression
+has gained attention. Zhu et al. (2021) add trainable importance weights for each dimension of the
+MHSA and MLP layers, apply L1 sparsity, and prune small dimensions . X-Pruner (2023) introduces
+an explainability-aware mask per prunable unit (e.g. attention heads or linear layer channels) and
+learns thresholds, demonstrating effective pruning of DeiT and Swin (on ImageNet) with minor
+accuracy loss . More recent methods like “Data-independent Module-aware Pruning” use similar
+ideas to prune Swin Transformers . Crucially, these works show that structured pruning
+(removing entire heads, channels, or dimensions) can greatly reduce computation while being more
+hardware-friendly than unstructured (fine-grained) sparsity.
+Pruning in SR and Transformers: Applying transformer pruning ideas to SR is less explored. Liang
+et al.  (note that SwinIR’s authors) briefly consider a lightweight SwinIR (fewer layers) with
+knowledge distillation . A CVPR 2023 paper on dynamic scalable SR (MSSR) applies the Lottery
+Ticket Hypothesis: it progressively prunes an SR model to create many nested sparse sub-networks,
+using stochastic self-distillation to transfer knowledge from the full model to pruned ones . This
+1
+2
+3 4
+5
+•
+6
+6
+2
+•
+7
+8
+9
+•
+1
+10
+1
+achieves very high sparsity (up to 94%) on CNN-based SR blocks. However, no prior work specifically
+tackles structured pruning of SwinIR itself. One recent workflow shows the value of combining
+sparsity training, hyper-parameter adjustment (reducing channels, blocks, layers), and distillation to
+compress SwinIR.
+Challenges in Pruning SwinIR
+SwinIR’s RSTB blocks contain windowed MSA (multi-head self-attention) and MLP layers. Global
+unstructured weight pruning (which the user already tried) often fails for SR because even small weight
+drops can severely degrade fine image details. Instead, structured approaches are preferred: e.g., pruning
+whole attention heads or MLP channels can remove larger chunks of computation (and is supported by
+literature on ViT pruning ). Likewise, pruning entire SwinIR layers or reducing the number of blocks
+can cut parameters. However, naively pruning layers hurts PSNR; thus careful importance estimation and
+fine-tuning is needed. Another challenge is that SR requires preserving high-frequency texture; so any
+pruning must be compensated by restoration (e.g. via distillation on high-frequency features ).
+Proposed Contribution: Structured Pruning +
+Distillation
+A practical, publishable contribution would be to apply layer- and channel-level structured pruning to
+SwinIR, combined with light-weight training strategies. Concretely, we propose:
+Attention-Head and Channel Pruning: Introduce a small trainable scaling mask for each multihead attention head and for each channel in the MLP layers of SwinIR. For example, each Swin
+Transformer layer has H heads; attach a learnable coefficient $a_h$ to the output of head $h$. Apply
+an $\ell_1$ regularization on these $a_h$ during training (akin to Zhu et al. ) so that unimportant
+heads get pushed toward zero. After training, prune (remove) the heads with coefficients below a
+threshold. Similarly, prune neurons/channels in the MLP blocks using sparsity masks. This removes
+entire operations and is more hardware-friendly than random weight pruning.
+Iterative Pruning & Fine-Tuning: Instead of a one-shot prune, use iterative pruning (like DIPNet) to
+minimize quality drop. In each iteration, prune e.g. 10–20% of the least-important heads/channels
+(based on the learned masks) and fine-tune the model briefly. This gradual approach, especially with
+an $\ell_2$ or $\ell_1$ criterion, tends to preserve PSNR better . After several iterations, one
+obtains a compact SwinIR with significantly reduced GFLOPs and parameters.
+Knowledge Distillation (KD): To recover lost detail, perform KD from the original SwinIR (or another
+high-capacity SR network) to the pruned one. For SR tasks, use both image-space loss and a feature
+or pixel distillation loss that emphasizes high-frequency components . For example, minimize $|
+I_{\text{SR}}^{\text{pruned}} - I_{\text{SR}}^{\text{teacher}} |^2$ (and a Laplacian-based highfrequency loss as in ). This helps the pruned model learn fine textures that it might otherwise
+lose. Prior works (DIPNet, MSSR) have shown distillation can largely restore PSNR after pruning.
+3 4
+7 8
+4
+•
+7
+•
+2
+•
+4
+11
+2
+Implementation on DIV2K: As requested, evaluate on DIV2K (800 train, 100 validation). Start from
+SwinIR_lightweight pretrained weights. During pruning experiments, measure PSNR/SSIM on DIV2K
+val and standard benchmarks (Set5, Urban100). Also record inference time or FLOPs for speed. The
+goal is a ~10–50% parameter/FLOPs reduction with minimal PSNR drop (e.g. <0.1?dB), which would
+be novel and publishable. For example, DIPNet achieved ~30% parameter reduction with negligible
+loss . A similar result for a transformer SR model would be significant.
+This approach is technically straightforward yet novel in the SR literature. It builds on proven ideas
+(structured ViT pruning and SR distillation ) but applies them to SwinIR. Even a small case study
+(e.g. pruning 1–2 heads per layer) could yield publishable insights. The minimum contribution is a careful
+experimental study: identify which attention heads or channels in SwinIR are redundant for SR, remove
+them, and demonstrate that combined pruning+KD outperforms naive pruning. If executed thoroughly
+(with ablations, comparisons to CNN baselines, and real SR images), this would merit a Q1/Q2 journal.
+Conclusion
+In summary, making SwinIR lighter via pruning calls for structured, knowledge-guided methods. State-ofthe-art techniques suggest using channel/ head pruning (not unstructured) and distillation to retain quality
+. A concrete, publishable idea is: apply per-head and per-channel sparsity masks in SwinIR’s transformer
+layers, prune the smallest units iteratively, and use teacher-student distillation to fine-tune the result. This small
+but non-trivial experiment – especially if it yields, say, a 30% parameter cut with <0.1?dB PSNR loss on DIV2K
+– would be a meaningful contribution to efficient SR.
+Sources: Prior work on SwinIR and SR models ; efficient SR methods (GhostSR, DIPNet, MSSR)
+; and transformer pruning literature . These motivate and support the proposed
+pruning+distillation approach.
+viplab.snu.ac.kr
+https://viplab.snu.ac.kr/viplab/courses/mlvu_2021_2/projects/final_papers/08.pdf
+DIPNet: Efficiency Distillation and Iterative Pruning for Image Super-Resolution
+https://openaccess.thecvf.com/content/CVPR2023W/NTIRE/papers/
+Yu_DIPNet_Efficiency_Distillation_and_Iterative_Pruning_for_Image_Super-Resolution_CVPRW_2023_paper.pdf
+Compressing Deep Image Super-resolution Models The authors appreciate the funding from
+Netflix Inc., University of Bristol, and the UKRI MyWorld Strength in Places Programme (SIPF00006/1).
+https://arxiv.org/html/2401.00523v1
+GhostSR: Learning Ghost Features for Efficient Image Super-Resolution | OpenReview
+https://openreview.net/forum?id=tbd9f3HwPy
+Vision Transformer Pruning
+https://arxiv.org/pdf/2104.08500
+[2303.04935] X-Pruner: eXplainable Pruning for Vision Transformers
+https://arxiv.org/abs/2303.04935
+•
+2
+7 8 4
+2 4
+1 12 6
+2 10 7 8
+1
+2
+3 4 5 11
+6
+7
+8
+3
+Data-independent Module-aware Pruning for Hierarchical Vision...
+https://openreview.net/forum?id=7Ol6foUi1G
+Memory-Friendly Scalable Super-Resolution via Rewinding Lottery Ticket Hypothesis
+https://openaccess.thecvf.com/content/CVPR2023/papers/Lin_Memory-Friendly_Scalable_SuperResolution_via_Rewinding_Lottery_Ticket_Hypothesis_CVPR_2023_paper.pdf
+SwinIR: Image Restoration Using Swin Transformer
+https://openaccess.thecvf.com/content/ICCV2021W/AIM/papers/
+Liang_SwinIR_Image_Restoration_Using_Swin_Transformer_ICCVW_2021_paper.pdf
+9
+10
+12
+4
