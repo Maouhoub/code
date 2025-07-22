@@ -76,6 +76,8 @@ class ModelPlain(ModelBase):
 
     def eval(self):
         self.netG.eval()
+    def train(self):
+        self.netG.train()
     # ----------------------------------------
     # load optimizer
     # ----------------------------------------
