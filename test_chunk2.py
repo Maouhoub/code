@@ -1,3 +1,5 @@
+
+# -*- coding: utf-8 -*-
 """
 Test script for Chunk 2: Structured Pruning Implementation
 Validates pruning plan generation and application without requiring full training
