@@ -130,7 +130,8 @@ def test_pipeline_initialization():
         'num_iterations': 3,
         'schedule_type': 'exponential',
         'fine_tune_epochs': 2,
-        'kd_alpha': 0.8
+        'kd_alpha': 0.8,
+        'kd_temperature': 4.0
     }
     
     pipeline_custom = IterativePruningPipeline(model, custom_config)
