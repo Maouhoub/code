@@ -1,6 +1,6 @@
 """
 Integration Test for All Chunks: Complete Structured Pruning Pipeline
-Tests the full pipeline: Importance Scoring ? Structured Pruning ? Knowledge Distillation
+Tests the full pipeline: Importance Scoring → Structured Pruning → Knowledge Distillation
 """
 
 import torch
@@ -332,12 +332,12 @@ def test_complete_pipeline():
     print(f"   Success criteria evaluation:")
     all_passed = True
     for criterion, passed in success_criteria.items():
-        status = "? PASS" if passed else "? FAIL"
+        status = "✓ PASS" if passed else "✗ FAIL"
         print(f"     {criterion}: {status}")
         if not passed:
             all_passed = False
     
-    print(f"\n   Overall Pipeline Result: {'?? SUCCESS' if all_passed else '? NEEDS IMPROVEMENT'}")
+    print(f"\n   Overall Pipeline Result: {'🎉 SUCCESS' if all_passed else '❌ NEEDS IMPROVEMENT'}")
     
     return {
         'success': all_passed,
@@ -367,7 +367,7 @@ def test_individual_chunks():
     test_tensor = torch.randn(1, 100, 64)
     output = mask(test_tensor)
     assert output.shape == test_tensor.shape
-    print("  ? Attention head masking functional")
+    print("  ✓ Attention head masking functional")
     
     # Test Chunk 2  
     print("\nChunk 2 - Pruning Logic:")
@@ -375,7 +375,7 @@ def test_individual_chunks():
     pruner = StructuredPruner(mock_model)
     plan = pruner.generate_pruning_plan(target_ratio=0.3, threshold=0.5)
     assert 'summary' in plan
-    print("  ? Pruning plan generation functional")
+    print("  ✓ Pruning plan generation functional")
     
     # Test Chunk 3
     print("\nChunk 3 - Knowledge Distillation:")
@@ -385,9 +385,9 @@ def test_individual_chunks():
     gt = torch.randn(1, 3, 32, 32)
     loss_dict = kd_loss(student_out, teacher_out, gt)
     assert 'total_loss' in loss_dict
-    print("  ? Knowledge distillation loss functional")
+    print("  ✓ Knowledge distillation loss functional")
     
-    print("\n  All individual chunks validated! ?")
+    print("\n  All individual chunks validated! ✓")
 
 def main():
     """Run complete integration tests"""
@@ -406,27 +406,27 @@ def main():
         print("="*70)
         
         if results['success']:
-            print("?? COMPLETE PIPELINE SUCCESSFUL!")
+            print("🎉 COMPLETE PIPELINE SUCCESSFUL!")
             print("\nAchieved metrics:")
             metrics = results['metrics']
-            print(f"  � Parameter reduction: {metrics['parameter_reduction']:.1%}")
-            print(f"  � PSNR drop: {metrics['psnr_drop']:.2f}dB")
-            print(f"  � Efficiency gain: {metrics['efficiency_gain']:.2f}x")
-            print(f"  � Final student PSNR: {metrics['final_student_psnr']:.2f}dB")
+            print(f"  • Parameter reduction: {metrics['parameter_reduction']:.1%}")
+            print(f"  • PSNR drop: {metrics['psnr_drop']:.2f}dB")
+            print(f"  • Efficiency gain: {metrics['efficiency_gain']:.2f}x")
+            print(f"  • Final student PSNR: {metrics['final_student_psnr']:.2f}dB")
             
-            print("\n? All chunks integrated successfully:")
-            print("  ? Chunk 1: Importance scoring with L1 regularization")
-            print("  ? Chunk 2: Structured pruning with threshold-based decisions") 
-            print("  ? Chunk 3: Knowledge distillation with high-frequency preservation")
+            print("\n✓ All chunks integrated successfully:")
+            print("  ✓ Chunk 1: Importance scoring with L1 regularization")
+            print("  ✓ Chunk 2: Structured pruning with threshold-based decisions") 
+            print("  ✓ Chunk 3: Knowledge distillation with high-frequency preservation")
             
-            print("\n?? Ready for publication-quality implementation!")
+            print("\n🚀 Ready for publication-quality implementation!")
             
         else:
-            print("? Pipeline needs improvement")
+            print("❌ Pipeline needs improvement")
             print("Check individual components and success criteria")
             
     except Exception as e:
-        print(f"\n? INTEGRATION TEST FAILED: {e}")
+        print(f"\n❌ INTEGRATION TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
 
