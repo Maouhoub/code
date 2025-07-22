@@ -450,12 +450,12 @@ class IterativePruningPipeline:
         print(f"\nSuccess criteria:")
         all_passed = True
         for criterion, passed in success_criteria.items():
-            status = "? PASS" if passed else "? FAIL"
+            status = "✓ PASS" if passed else "✗ FAIL"
             print(f"  {criterion}: {status}")
             if not passed:
                 all_passed = False
         
-        print(f"\nOverall result: {'?? SUCCESS' if all_passed else '? NEEDS IMPROVEMENT'}")
+        print(f"\nOverall result: {'🎉 SUCCESS' if all_passed else '❌ NEEDS IMPROVEMENT'}")
 
 def create_mock_train_loader():
     """Create a mock training data loader for testing"""
