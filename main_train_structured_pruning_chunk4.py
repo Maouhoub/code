@@ -100,8 +100,8 @@ class IterativePruningPipeline:
         self.original_model = model
         self.current_model = copy.deepcopy(model)
         
-        # Configuration
-        self.config = config or {
+        # Default configuration
+        default_config = {
             'target_ratio': 0.4,
             'num_iterations': 4,
             'schedule_type': 'linear',
@@ -113,6 +113,11 @@ class IterativePruningPipeline:
             'importance_threshold_decay': 0.9,
             'initial_threshold': 0.5
         }
+        
+        # Merge user config with defaults
+        self.config = default_config.copy()
+        if config:
+            self.config.update(config)
         
         # Initialize components
         self.scheduler = IterativePruningScheduler(
