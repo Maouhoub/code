@@ -73,26 +73,27 @@ def test_convergence_monitoring():
     # Test improving PSNR (first iteration should set baseline)
     should_continue, reason = scheduler.should_continue(25.0, 0)  # First iteration
     assert should_continue
-    print(f"✓ First iteration: {reason}")
+    print(f"✓ First iteration: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
     
     should_continue, reason = scheduler.should_continue(26.0, 1)  # Improvement
     assert should_continue
     assert scheduler.bad_iterations == 0
-    print(f"✓ Improvement detected: {reason}")
+    print(f"✓ Improvement detected: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
     
     # Test small improvement (should count as bad iteration)
     should_continue, reason = scheduler.should_continue(26.2, 2)  # Small improvement
     assert should_continue
     assert scheduler.bad_iterations == 1  # Should increment bad iterations
-    print(f"✓ Insufficient improvement: {reason}")
+    print(f"✓ Insufficient improvement: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
     
     should_continue, reason = scheduler.should_continue(25.5, 3)  # Decrease
     assert should_continue
     assert scheduler.bad_iterations == 2
-    print(f"✓ No improvement: {reason}")
+    print(f"✓ No improvement: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
     
-    # Should stop due to patience
+    # Should stop due to patience (bad_iterations will become 3, which >= patience=2)
     should_continue, reason = scheduler.should_continue(25.0, 4)  # Further decrease
+    print(f"Debug: Final call result: should_continue={should_continue}, reason='{reason}', bad_iterations={scheduler.bad_iterations}, patience={scheduler.patience}")
     assert not should_continue
     assert "No improvement" in reason
     print(f"✓ Early stopping: {reason}")
