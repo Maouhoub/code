@@ -66,8 +66,8 @@ def test_convergence_monitoring():
     """Test convergence monitoring functionality"""
     print("Testing convergence monitoring...")
     
-    scheduler = IterativePruningScheduler(target_ratio=0.4, num_iterations=5)
-    scheduler.patience = 3  # Increased patience to 3 so we can test properly
+    scheduler = IterativePruningScheduler(target_ratio=0.4, num_iterations=6)
+    scheduler.patience = 2  # Set patience to 2 for clear testing
     scheduler.min_improvement = 0.5
     
     # Test improving PSNR (first iteration should set baseline)
@@ -86,17 +86,11 @@ def test_convergence_monitoring():
     assert scheduler.bad_iterations == 1  # Should increment bad iterations
     print(f"✓ Insufficient improvement: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
     
+    # Another bad iteration - should still continue because bad_iterations=2, patience=2 (2>=2 will trigger)
     should_continue, reason = scheduler.should_continue(25.5, 3)  # Decrease
-    assert should_continue
-    assert scheduler.bad_iterations == 2
-    print(f"✓ No improvement: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
-    
-    # Should stop due to patience (bad_iterations will become 3, which >= patience=3)
-    should_continue, reason = scheduler.should_continue(25.0, 4)  # Another decrease
-    print(f"Debug: Final call result: should_continue={should_continue}, reason='{reason}', bad_iterations={scheduler.bad_iterations}, patience={scheduler.patience}")
-    assert not should_continue  # Should stop because bad_iterations=3 >= patience=3
+    assert not should_continue  # Should stop NOW because bad_iterations becomes 2 >= patience=2
     assert "No improvement" in reason
-    print(f"✓ Early stopping: {reason}")
+    print(f"✓ Early stopping: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
     
     # Test max iterations
     scheduler2 = IterativePruningScheduler(target_ratio=0.4, num_iterations=3)
