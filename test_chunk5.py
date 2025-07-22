@@ -40,7 +40,7 @@ def test_evaluator_initialization():
     assert evaluator.config['num_samples_per_dataset'] == 3
     assert evaluator.config['target_reduction'] == 0.5
     
-    print("✓ Evaluator initialization test passed")
+    print(" Evaluator initialization test passed")
 
 def test_synthetic_dataset_creation():
     """Test synthetic dataset generation"""
@@ -73,7 +73,7 @@ def test_synthetic_dataset_creation():
             assert sample['hr'].shape[0] == 1
             assert sample['hr'].shape[1] == 3
     
-    print("✓ Synthetic dataset creation test passed")
+    print(" Synthetic dataset creation test passed")
 
 def test_quality_metrics_evaluation():
     """Test quality metrics evaluation"""
@@ -105,7 +105,7 @@ def test_quality_metrics_evaluation():
     assert result['pruned_psnr'] > 0
     assert result['psnr_drop'] >= 0  # Some drop expected
     
-    print("✓ Quality metrics evaluation test passed")
+    print(" Quality metrics evaluation test passed")
 
 def test_performance_profiling():
     """Test inference time and memory profiling"""
@@ -137,7 +137,7 @@ def test_performance_profiling():
     assert performance_results['pruned_inference_time'] > 0
     assert performance_results['speedup'] > 0
     
-    print("✓ Performance profiling test passed")
+    print(" Performance profiling test passed")
 
 def test_compression_analysis():
     """Test model compression analysis"""
@@ -160,7 +160,7 @@ def test_compression_analysis():
     assert compression_results['original_size_mb'] > compression_results['pruned_size_mb']
     assert compression_results['size_reduction'] > 0
     
-    print("✓ Compression analysis test passed")
+    print(" Compression analysis test passed")
 
 def test_comprehensive_evaluation():
     """Test complete evaluation pipeline"""
@@ -203,7 +203,7 @@ def test_comprehensive_evaluation():
     assert 'param_reduction' in summary
     assert 'memory_reduction' in summary
     
-    print("✓ Comprehensive evaluation test passed")
+    print(" Comprehensive evaluation test passed")
 
 def test_integration_with_pruning_pipeline():
     """Test integration with the pruning pipeline"""
@@ -251,7 +251,7 @@ def test_integration_with_pruning_pipeline():
     assert 'success' in eval_results
     assert eval_results['compression_results']['param_reduction'] > 0
     
-    print("✓ Integration with pruning pipeline test passed")
+    print(" Integration with pruning pipeline test passed")
 
 def test_success_criteria_validation():
     """Test success criteria validation with different scenarios"""
@@ -295,7 +295,7 @@ def test_success_criteria_validation():
     # Should pass with lenient criteria
     assert results['success']
     
-    print("✓ Success criteria validation test passed")
+    print(" Success criteria validation test passed")
 
 def test_error_handling():
     """Test error handling in evaluation"""
@@ -312,9 +312,9 @@ def test_error_handling():
         evaluator = ComprehensiveEvaluator(original_model, pruned_model, config)
         datasets = evaluator.create_synthetic_datasets()
         assert len(datasets) == 0
-        print("  ✓ Empty datasets handled correctly")
+        print("   Empty datasets handled correctly")
     except Exception as e:
-        print(f"  ✓ Empty datasets error handled: {e}")
+        print(f"   Empty datasets error handled: {e}")
     
     # Test with very small model
     try:
@@ -322,11 +322,11 @@ def test_error_handling():
         evaluator = ComprehensiveEvaluator(tiny_model, tiny_model)  # Same model
         results = evaluator.analyze_model_compression()
         assert results['param_reduction'] == 0  # No reduction expected
-        print("  ✓ Identical models handled correctly")
+        print("   Identical models handled correctly")
     except Exception as e:
-        print(f"  ✓ Tiny model error handled: {e}")
+        print(f"   Tiny model error handled: {e}")
     
-    print("✓ Error handling test passed")
+    print(" Error handling test passed")
 
 def run_all_tests():
     """Run all Chunk 5 tests"""
