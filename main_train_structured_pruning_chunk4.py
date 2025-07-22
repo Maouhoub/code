@@ -252,6 +252,13 @@ class IterativePruningPipeline:
             new_embed_dim = max(32, int(original_embed_dim * reduction_factor))
             new_heads = max(1, int(original_heads * reduction_factor))
             
+            # Ensure embed_dim is divisible by 4 for pixel shuffle (2x upscaling)
+            new_embed_dim = ((new_embed_dim + 3) // 4) * 4
+            
+            # Ensure heads divides embed_dim evenly
+            while new_embed_dim % new_heads != 0 and new_heads > 1:
+                new_heads -= 1
+            
             # Import the mock model from test_integration
             from test_integration import IntegratedSwinIRModel
             pruned_model = IntegratedSwinIRModel(
