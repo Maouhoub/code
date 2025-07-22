@@ -243,14 +243,16 @@ class IterativePruningPipeline:
         # In practice, this would involve actual weight removal
         
         if pruning_plan['summary']['actual_ratio'] > 0.1:
-            # Create smaller model architecture
-            original_embed_dim = 96
-            original_heads = 4
+            # Get original model dimensions
+            original_embed_dim = getattr(self.current_model, 'embed_dim', 96)
+            original_heads = getattr(self.current_model, 'num_heads', 4)
             
             # Reduce dimensions based on pruning ratio
             reduction_factor = 1 - pruning_plan['summary']['actual_ratio']
             new_embed_dim = max(32, int(original_embed_dim * reduction_factor))
             new_heads = max(1, int(original_heads * reduction_factor))
+            
+            print(f"Before adjustment: original={original_embed_dim}, new_embed_dim={new_embed_dim}, heads={new_heads}")
             
             # Ensure embed_dim is divisible by 4 for pixel shuffle (2x upscaling)
             new_embed_dim = ((new_embed_dim + 3) // 4) * 4
@@ -258,6 +260,8 @@ class IterativePruningPipeline:
             # Ensure heads divides embed_dim evenly
             while new_embed_dim % new_heads != 0 and new_heads > 1:
                 new_heads -= 1
+            
+            print(f"After adjustment: embed_dim={new_embed_dim}, heads={new_heads}")
             
             # Import the mock model from test_integration
             from test_integration import IntegratedSwinIRModel
