@@ -57,7 +57,7 @@ def test_knowledge_distillation_loss():
     assert student_output.grad is not None
     assert student_output.grad.shape == student_output.shape
     
-    print(f"? KD Loss components:")
+    print(f" KD Loss components:")
     for loss_name, loss_value in loss_dict.items():
         print(f"  {loss_name}: {loss_value.item():.6f}")
     
@@ -99,7 +99,7 @@ def test_high_frequency_loss():
     loss_different = kd_loss.high_frequency_loss(smooth_img, edge_img)
     assert loss_different.item() > loss_same.item()
     
-    print(f"? High-frequency loss validation:")
+    print(f" High-frequency loss validation:")
     print(f"  Same images: {loss_same.item():.6f}")
     print(f"  Different HF content: {loss_different.item():.6f}")
 
@@ -135,8 +135,8 @@ def test_feature_distillation_loss():
     assert torch.is_tensor(loss_short)
     assert loss_short.item() >= 0
     
-    print(f"? Feature distillation loss: {loss.item():.6f}")
-    print(f"? Mismatched features handled: {loss_short.item():.6f}")
+    print(f" Feature distillation loss: {loss.item():.6f}")
+    print(f" Mismatched features handled: {loss_short.item():.6f}")
 
 class MockModel(nn.Module):
     """Mock model for testing distillation training"""
@@ -210,7 +210,7 @@ def test_distillation_training_step():
     params_changed = any(not torch.equal(p1, p2) for p1, p2 in zip(initial_params, final_params))
     assert params_changed, "Student model parameters should have been updated"
     
-    print(f"? Training step results:")
+    print(f" Training step results:")
     for key, value in loss_dict.items():
         if key == 'psnr':
             print(f"  {key}: {value:.2f}dB")
@@ -241,7 +241,7 @@ def test_psnr_calculation():
     # Border cropping should affect result
     assert abs(psnr_border - psnr_different) > 0.001
     
-    print(f"? PSNR tests:")
+    print(f" PSNR tests:")
     print(f"  Identical images: {psnr_identical}")
     print(f"  Different images: {psnr_different:.2f}dB")
     print(f"  With border crop: {psnr_border:.2f}dB")
@@ -310,7 +310,7 @@ def test_end_to_end_distillation():
     final_psnr = psnrs[-1]
     assert final_psnr > 10.0, f"PSNR too low: {final_psnr:.2f}dB"
     
-    print(f"? Training convergence:")
+    print(f" Training convergence:")
     print(f"  Initial loss: {initial_loss:.6f}")
     print(f"  Final loss: {final_loss:.6f}")
     print(f"  Loss reduction: {loss_reduction:.1%}")
@@ -339,7 +339,7 @@ def test_loss_component_weighting():
     alpha_0_total = results[0.0]['total_loss'].item()
     alpha_1_total = results[1.0]['total_loss'].item()
     
-    print(f"? Alpha weighting effects:")
+    print(f" Alpha weighting effects:")
     for alpha in alphas:
         r = results[alpha]
         print(f"  Alpha {alpha}: Total={r['total_loss'].item():.4f}, "
@@ -369,7 +369,7 @@ def main():
         test_end_to_end_distillation()
         
         print("\n" + "="*60)
-        print("?? ALL CHUNK 3 TESTS PASSED!")
+        print("ðŸŽ‰ ALL CHUNK 3 TESTS PASSED!")
         print("="*60)
         
         print("\nKey Validation Results:")
@@ -383,14 +383,14 @@ def main():
         print(" Training convergence demonstrated")
         
         print("\nChunk 3 Implementation Ready:")
-        print("• Feature-level distillation loss ")
-        print("• High-frequency preservation loss ") 
-        print("• Combined training objective ")
-        print("• Teacher-student training loop ")
-        print("• Quality recovery validation ")
-        print("• PSNR monitoring and calculation ?")
+        print(" Feature-level distillation loss ")
+        print(" High-frequency preservation loss ") 
+        print(" Combined training objective ")
+        print(" Teacher-student training loop ")
+        print(" Quality recovery validation ")
+        print(" PSNR monitoring and calculation ")
         
-        print("\n?? All chunks (1, 2, 3) validated and ready for integration!")
+        print("\nðŸš€ All chunks (1, 2, 3) validated and ready for integration!")
         
     except Exception as e:
         print(f"\n TEST FAILED: {e}")
