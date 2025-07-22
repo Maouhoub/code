@@ -229,7 +229,8 @@ def test_multiple_iterations():
     print(f"✓ Multiple iterations completed:")
     print(f"  Total reduction: {total_reduction:.1%}")
     print(f"  Final PSNR: {results[-1]['psnr']:.2f}dB")
-    print(f"  Iteration PSNRs: {[f\"{r['psnr']:.1f}dB\" for r in results]}")
+    psnr_values = [f"{r['psnr']:.1f}dB" for r in results]
+    print(f"  Iteration PSNRs: {psnr_values}")
     
     # Validate that each iteration processes correctly
     for i, result in enumerate(results):
