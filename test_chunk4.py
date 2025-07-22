@@ -91,16 +91,10 @@ def test_convergence_monitoring():
     assert scheduler.bad_iterations == 2
     print(f"✓ No improvement: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
     
-    # One more bad iteration before hitting patience limit
+    # Should stop due to patience (bad_iterations will become 3, which >= patience=3)
     should_continue, reason = scheduler.should_continue(25.0, 4)  # Another decrease
-    assert should_continue  # Should still continue because bad_iterations=3, but patience=3 (3 >= 3 will trigger on next)
-    assert scheduler.bad_iterations == 3
-    print(f"✓ Still continuing: {reason} (best_psnr: {scheduler.best_psnr}, bad_iterations: {scheduler.bad_iterations})")
-    
-    # Now should stop due to patience (bad_iterations will become 4, which >= patience=3)
-    should_continue, reason = scheduler.should_continue(24.5, 5)  # Further decrease  
     print(f"Debug: Final call result: should_continue={should_continue}, reason='{reason}', bad_iterations={scheduler.bad_iterations}, patience={scheduler.patience}")
-    assert not should_continue
+    assert not should_continue  # Should stop because bad_iterations=3 >= patience=3
     assert "No improvement" in reason
     print(f"✓ Early stopping: {reason}")
     
