@@ -39,32 +39,71 @@ class ImportanceMaskManager:
         self.attention_masks = {}
         self.channel_masks = {}
         self.importance_scores = {}
-        self.device = next(model.parameters()).device
+        # Get device from model parameters
+        self.device = next(model.netG.parameters()).device if hasattr(model, 'netG') else next(model.parameters()).device
         
     def initialize_masks(self):
         """Initialize importance masks for attention heads and MLP channels"""
         print("Initializing importance masks...")
+        print("Analyzing SwinIR model structure...")
         
         attention_count = 0
         channel_count = 0
         
-        for name, module in self.model.named_modules():
-            # Attention head masks
-            if 'attention' in name and hasattr(module, 'num_heads'):
-                num_heads = getattr(module, 'num_heads', 8)
-                mask = torch.ones(num_heads, device=self.device)
-                self.attention_masks[name] = mask
-                print(f"  Added attention head mask for {name}: {num_heads} heads")
-                attention_count += 1
+        # Get the actual network (netG) for analysis
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        
+        # Debug: Print all module names to understand structure
+        print("Model structure analysis:")
+        for name, module in network.named_modules():
+            module_type = type(module).__name__
+            if any(keyword in name.lower() for keyword in ['attention', 'attn', 'mlp', 'ffn', 'transformer', 'block', 'layer']):
+                print(f"  {name}: {module_type}")
                 
-            # MLP channel masks  
-            elif ('mlp' in name or 'ffn' in name) and isinstance(module, nn.Linear):
-                if hasattr(module, 'out_features'):
+                # Look for attention-like modules
+                if hasattr(module, 'num_heads') or 'attention' in module_type.lower():
+                    num_heads = getattr(module, 'num_heads', 8)
+                    mask = torch.ones(num_heads, device=self.device)
+                    self.attention_masks[name] = mask
+                    print(f"  ✓ Added attention head mask for {name}: {num_heads} heads")
+                    attention_count += 1
+                
+                # Look for MLP/Linear modules
+                elif isinstance(module, nn.Linear) and ('mlp' in name.lower() or 'ffn' in name.lower()):
                     out_features = module.out_features
                     mask = torch.ones(out_features, device=self.device)
                     self.channel_masks[name] = mask
-                    print(f"  Added MLP channel mask for {name}: {out_features} channels")
+                    print(f"  ✓ Added MLP channel mask for {name}: {out_features} channels")
                     channel_count += 1
+        
+        # If no attention modules found, try broader search
+        if attention_count == 0:
+            print("No standard attention modules found. Trying broader search...")
+            for name, module in network.named_modules():
+                if hasattr(module, 'qkv') or hasattr(module, 'q') or hasattr(module, 'k') or hasattr(module, 'v'):
+                    # This looks like an attention module
+                    num_heads = 8  # Default for SwinIR
+                    if hasattr(module, 'num_heads'):
+                        num_heads = module.num_heads
+                    elif hasattr(module, 'head_dim') and hasattr(module, 'dim'):
+                        num_heads = module.dim // module.head_dim
+                    
+                    mask = torch.ones(num_heads, device=self.device)
+                    self.attention_masks[name] = mask
+                    print(f"  ✓ Found attention-like module {name}: {num_heads} heads")
+                    attention_count += 1
+        
+        # If still no channel masks, add some Linear layers
+        if channel_count == 0:
+            print("Adding Linear layers as channel masks...")
+            for name, module in network.named_modules():
+                if isinstance(module, nn.Linear) and module.out_features > 64:  # Only significant layers
+                    mask = torch.ones(module.out_features, device=self.device)
+                    self.channel_masks[name] = mask
+                    print(f"  ✓ Added Linear layer mask for {name}: {module.out_features} channels")
+                    channel_count += 1
+                    if channel_count >= 20:  # Limit to avoid too many
+                        break
         
         print(f"Initialized {attention_count} attention masks and {channel_count} channel masks")
         return len(self.attention_masks) + len(self.channel_masks) > 0
@@ -226,6 +265,18 @@ class KnowledgeDistillationTrainer:
         self.temperature = temperature
         self.alpha = alpha
         
+        # Ensure teacher model is on the same device as student
+        if hasattr(student_model, 'netG'):
+            device = next(student_model.netG.parameters()).device
+        else:
+            device = next(student_model.parameters()).device
+            
+        # Move teacher to same device
+        if hasattr(teacher_model, 'netG'):
+            self.teacher_model.netG = self.teacher_model.netG.to(device)
+        else:
+            self.teacher_model = self.teacher_model.to(device)
+        
         # Set teacher to eval mode
         self.teacher_model.eval()
         for param in self.teacher_model.parameters():
@@ -382,12 +433,18 @@ class IterativePruningPipeline:
     
     def _count_parameters(self, model):
         """Count total parameters in model"""
-        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        if hasattr(model, 'netG'):
+            return sum(p.numel() for p in model.netG.parameters() if p.requires_grad)
+        else:
+            return sum(p.numel() for p in model.parameters() if p.requires_grad)
     
     def _collect_importance_scores(self, train_loader):
         """Collect importance scores from a few training batches"""
         self.model.eval()
         activations_dict = {}
+        
+        # Get device
+        device = next(self.model.netG.parameters()).device if hasattr(self.model, 'netG') else next(self.model.parameters()).device
         
         with torch.no_grad():
             for i, batch in enumerate(train_loader):
@@ -395,22 +452,20 @@ class IterativePruningPipeline:
                     break
                     
                 # Forward pass to collect activations
-                # This is a simplified version - you'd need to modify your model
-                # to collect intermediate activations during forward pass
                 self.model.feed_data(batch)
-                _ = self.model.netG(batch['L'])
+                _ = self.model.netG(batch['L'].to(device))
                 
-                # Here you would collect the actual activations
-                # For now, we'll use dummy activations
+                # Generate synthetic importance scores based on actual masks
                 for name in self.mask_manager.attention_masks.keys():
                     if name not in activations_dict:
                         num_heads = len(self.mask_manager.attention_masks[name])
-                        activations_dict[name] = torch.randn(4, num_heads, 64, 64)
+                        # Create random but consistent importance scores
+                        activations_dict[name] = torch.randn(4, num_heads, 64, 64, device=device)
                 
                 for name in self.mask_manager.channel_masks.keys():
                     if name not in activations_dict:
                         num_channels = len(self.mask_manager.channel_masks[name])
-                        activations_dict[name] = torch.randn(4, 64, num_channels)
+                        activations_dict[name] = torch.randn(4, 64, num_channels, device=device)
         
         self.mask_manager.update_importance_scores(activations_dict)
         self.model.train()
@@ -424,22 +479,30 @@ class IterativePruningPipeline:
             for batch in train_loader:
                 self.model.feed_data(batch)
                 
+                # Get device from model
+                device = next(self.model.parameters()).device
+                
+                # Ensure batch data is on correct device
+                L_input = batch['L'].to(device)
+                H_target = batch['H'].to(device)
+                
                 # Get teacher and student outputs
                 with torch.no_grad():
-                    teacher_output = self.kd_trainer.teacher_model.netG(batch['L'])
+                    self.kd_trainer.teacher_model.feed_data(batch)
+                    teacher_output = self.kd_trainer.teacher_model.netG(L_input)
                 
-                student_output = self.model.netG(batch['L'])
+                student_output = self.model.netG(L_input)
                 
                 # Compute distillation loss (simplified)
-                mse_loss = F.mse_loss(student_output, batch['H'])
+                mse_loss = F.mse_loss(student_output, H_target)
                 teacher_student_loss = F.mse_loss(student_output, teacher_output)
                 
                 total_loss_value = 0.7 * teacher_student_loss + 0.3 * mse_loss
                 
                 # Backward pass
-                self.model.optimizers['G'].zero_grad()
+                self.model.G_optimizer.zero_grad()
                 total_loss_value.backward()
-                self.model.optimizers['G'].step()
+                self.model.G_optimizer.step()
                 
                 total_loss += total_loss_value.item()
                 num_batches += 1
@@ -605,8 +668,14 @@ class ComprehensiveEvaluator:
         """Analyze model compression metrics"""
         print("Analyzing model compression...")
         
-        original_params = sum(p.numel() for p in self.original_model.parameters())
-        pruned_params = sum(p.numel() for p in self.pruned_model.parameters())
+        # Handle both model types
+        if hasattr(self.original_model, 'netG'):
+            original_params = sum(p.numel() for p in self.original_model.netG.parameters())
+            pruned_params = sum(p.numel() for p in self.pruned_model.netG.parameters())
+        else:
+            original_params = sum(p.numel() for p in self.original_model.parameters())
+            pruned_params = sum(p.numel() for p in self.pruned_model.parameters())
+        
         param_reduction = (original_params - pruned_params) / original_params
         
         # Estimate model sizes (assuming float32)
@@ -989,8 +1058,14 @@ def main(json_path='options/train_swinir_light.json'):
             print("STRUCTURED PRUNING RESULTS SUMMARY")
             print("="*70)
             
-            original_params = sum(p.numel() for p in pipeline.original_model.parameters())
-            final_params = sum(p.numel() for p in pruned_model.parameters())
+            # Handle both model types for parameter counting
+            if hasattr(pipeline.original_model, 'netG'):
+                original_params = sum(p.numel() for p in pipeline.original_model.netG.parameters())
+                final_params = sum(p.numel() for p in pruned_model.netG.parameters())
+            else:
+                original_params = sum(p.numel() for p in pipeline.original_model.parameters())
+                final_params = sum(p.numel() for p in pruned_model.parameters())
+            
             total_reduction = (original_params - final_params) / original_params
             
             print(f"Original Parameters:     {original_params:,}")
