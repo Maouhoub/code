@@ -160,8 +160,8 @@ class ComprehensiveEvaluator:
                     'samples_count': len(samples)
                 }
                 
-                print(f"  Original PSNR: {avg_original_psnr:.2f} � {std_original:.2f} dB")
-                print(f"  Pruned PSNR:   {avg_pruned_psnr:.2f} � {std_pruned:.2f} dB")
+                print(f"  Original PSNR: {avg_original_psnr:.2f} ± {std_original:.2f} dB")
+                print(f"  Pruned PSNR:   {avg_pruned_psnr:.2f} ± {std_pruned:.2f} dB")
                 print(f"  PSNR Drop:     {psnr_drop:.2f} dB")
         
         return quality_results
@@ -231,8 +231,8 @@ class ComprehensiveEvaluator:
         
         speedup = original_time / pruned_time if pruned_time > 0 else 0
         
-        print(f"  Original model: {original_time*1000:.2f} � {original_time_std*1000:.2f} ms")
-        print(f"  Pruned model:   {pruned_time*1000:.2f} � {pruned_time_std*1000:.2f} ms")
+        print(f"  Original model: {original_time*1000:.2f} ± {original_time_std*1000:.2f} ms")
+        print(f"  Pruned model:   {pruned_time*1000:.2f} ± {pruned_time_std*1000:.2f} ms")
         print(f"  Speedup:        {speedup:.2f}x")
         
         # Measure memory usage
@@ -368,7 +368,7 @@ class ComprehensiveEvaluator:
         print("-" * 50)
         all_passed = True
         for criterion, details in success_criteria.items():
-            status = "? PASS" if details['passed'] else "? FAIL"
+            status = "✓ PASS" if details['passed'] else "✗ FAIL"
             print(f"{criterion:20s}: {status} (Target: {details['target']}, Achieved: {details['achieved']})")
             if not details['passed']:
                 all_passed = False
@@ -384,20 +384,20 @@ class ComprehensiveEvaluator:
         
         # Performance summary
         print(f"\nPerformance Metrics:")
-        print(f"  Inference Time: {performance_results['original_inference_time']*1000:.2f}ms ? "
+        print(f"  Inference Time: {performance_results['original_inference_time']*1000:.2f}ms → "
               f"{performance_results['pruned_inference_time']*1000:.2f}ms ({performance_results['speedup']:.2f}x speedup)")
-        print(f"  Memory Usage:   {performance_results['original_memory']:.1f}MB ? "
+        print(f"  Memory Usage:   {performance_results['original_memory']:.1f}MB → "
               f"{performance_results['pruned_memory']:.1f}MB ({performance_results['memory_reduction']:.1%} reduction)")
         
         # Compression summary
         print(f"\nCompression Metrics:")
-        print(f"  Parameters:     {compression_results['original_params']:,} ? "
+        print(f"  Parameters:     {compression_results['original_params']:,} → "
               f"{compression_results['pruned_params']:,} ({compression_results['param_reduction']:.1%} reduction)")
-        print(f"  Model Size:     {compression_results['original_size_mb']:.2f}MB ? "
+        print(f"  Model Size:     {compression_results['original_size_mb']:.2f}MB → "
               f"{compression_results['pruned_size_mb']:.2f}MB ({compression_results['size_reduction']:.1%} reduction)")
         
         print(f"\nEvaluation Time: {evaluation_time:.2f}s")
-        print(f"\nOverall Result: {'?? SUCCESS' if all_passed else '? NEEDS IMPROVEMENT'}")
+        print(f"\nOverall Result: {'🎉 SUCCESS' if all_passed else '❌ NEEDS IMPROVEMENT'}")
         
         # Compile final results
         final_results = {
@@ -459,7 +459,7 @@ def test_comprehensive_evaluator():
     assert 'performance_results' in results
     assert 'compression_results' in results
     
-    print("? Comprehensive evaluator test passed!")
+    print("✓ Comprehensive evaluator test passed!")
     return results
 
 def main():
