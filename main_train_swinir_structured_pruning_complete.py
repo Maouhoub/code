@@ -590,8 +590,8 @@ class ComprehensiveEvaluator:
         avg_pruned_time = np.mean(pruned_times) * 1000
         speedup = avg_original_time / avg_pruned_time if avg_pruned_time > 0 else 1.0
         
-        print(f"  Original model: {avg_original_time:.2f} � {np.std(original_times)*1000:.2f} ms")
-        print(f"  Pruned model:   {avg_pruned_time:.2f} � {np.std(pruned_times)*1000:.2f} ms")
+        print(f"  Original model: {avg_original_time:.2f} ± {np.std(original_times)*1000:.2f} ms")
+        print(f"  Pruned model:   {avg_pruned_time:.2f} ± {np.std(pruned_times)*1000:.2f} ms")
         print(f"  Speedup:        {speedup:.2f}x")
         
         return {
@@ -665,8 +665,8 @@ class ComprehensiveEvaluator:
         avg_pruned_psnr = np.mean(pruned_psnrs)
         avg_psnr_drop = avg_original_psnr - avg_pruned_psnr
         
-        print(f"  Original PSNR: {avg_original_psnr:.2f} � {np.std(original_psnrs):.2f} dB")
-        print(f"  Pruned PSNR:   {avg_pruned_psnr:.2f} � {np.std(pruned_psnrs):.2f} dB")
+        print(f"  Original PSNR: {avg_original_psnr:.2f} ± {np.std(original_psnrs):.2f} dB")
+        print(f"  Pruned PSNR:   {avg_pruned_psnr:.2f} ± {np.std(pruned_psnrs):.2f} dB")
         print(f"  PSNR Drop:     {avg_psnr_drop:.2f} dB")
         
         return {
@@ -722,7 +722,7 @@ class ComprehensiveEvaluator:
         print("\nSUCCESS CRITERIA EVALUATION:")
         print("-" * 50)
         for criterion, details in results['success_criteria'].items():
-            status = "? PASS" if details['passed'] else "? FAIL"
+            status = "✓ PASS" if details['passed'] else "✗ FAIL"
             print(f"{criterion:<20}: {status} (Target: {details['target']}, Achieved: {details['achieved']})")
         
         print("\nDETAILED RESULTS:")
@@ -731,22 +731,22 @@ class ComprehensiveEvaluator:
         # Performance metrics
         perf = results['performance_results']
         print(f"Performance Metrics:")
-        print(f"  Inference Time: {perf['original_inference_time']:.2f}ms ? {perf['pruned_inference_time']:.2f}ms ({perf['speedup']:.2f}x speedup)")
+        print(f"  Inference Time: {perf['original_inference_time']:.2f}ms → {perf['pruned_inference_time']:.2f}ms ({perf['speedup']:.2f}x speedup)")
         
         # Compression metrics
         comp = results['compression_results']
         print(f"Compression Metrics:")
-        print(f"  Parameters:     {comp['original_params']:,} ? {comp['pruned_params']:,} ({comp['param_reduction']:.1%} reduction)")
-        print(f"  Model Size:     {comp['original_size_mb']:.2f}MB ? {comp['pruned_size_mb']:.2f}MB ({comp['size_reduction']:.1%} reduction)")
+        print(f"  Parameters:     {comp['original_params']:,} → {comp['pruned_params']:,} ({comp['param_reduction']:.1%} reduction)")
+        print(f"  Model Size:     {comp['original_size_mb']:.2f}MB → {comp['pruned_size_mb']:.2f}MB ({comp['size_reduction']:.1%} reduction)")
         
         # Quality metrics
         qual = results['quality_results']
         print(f"Quality Metrics:")
-        print(f"  PSNR:           {qual['original_psnr']:.2f}dB ? {qual['pruned_psnr']:.2f}dB ({qual['avg_psnr_drop']:.2f}dB drop)")
+        print(f"  PSNR:           {qual['original_psnr']:.2f}dB → {qual['pruned_psnr']:.2f}dB ({qual['avg_psnr_drop']:.2f}dB drop)")
         
         print(f"\nEvaluation Time: {results['evaluation_time']:.2f}s")
         
-        overall_result = "?? SUCCESS" if results['success'] else "? NEEDS IMPROVEMENT"
+        overall_result = "🎉 SUCCESS" if results['success'] else "❌ NEEDS IMPROVEMENT"
         print(f"\nOverall Result: {overall_result}")
 
 
@@ -914,7 +914,7 @@ def main(json_path='options/train_swinir_light.json'):
         pipeline_results = pipeline.run_complete_pipeline(train_loader, test_loader)
         
         if pipeline_results['success']:
-            print("\n?? Pruning pipeline completed successfully!")
+            print("\n🎉 Pruning pipeline completed successfully!")
             
             # Get the pruned model
             pruned_model = pipeline_results['final_model']
@@ -998,7 +998,7 @@ def main(json_path='options/train_swinir_light.json'):
             print(f"Parameter Reduction:     {total_reduction:.1%}")
             print(f"Final PSNR:              {avg_psnr:.2f}dB")
             print(f"Average Inference Time:  {avg_inference_time:.4f}s")
-            print(f"Evaluation Success:      {'? PASS' if evaluation_results['success'] else '? FAIL'}")
+            print(f"Evaluation Success:      {'✓ PASS' if evaluation_results['success'] else '✗ FAIL'}")
             
             # Save final model
             print("\nSaving final pruned model...")
@@ -1022,10 +1022,10 @@ def main(json_path='options/train_swinir_light.json'):
                            f"PSNR={iteration['psnr_after']:.2f}dB\n")
             
             print(f"Results saved to: {results_file}")
-            print("\n?? Structured pruning training completed successfully!")
+            print("\n🎉 Structured pruning training completed successfully!")
             
         else:
-            print("? Pruning pipeline failed!")
+            print("❌ Pruning pipeline failed!")
             return
 
 if __name__ == '__main__':
