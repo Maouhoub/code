@@ -1,3 +1,5 @@
+
+# -*- coding: utf-8 -*-
 """
 Test script for Chunk 3: Knowledge Distillation Framework
 Validates distillation loss computation, teacher-student training, and quality recovery
