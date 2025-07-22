@@ -40,7 +40,7 @@ def test_pruning_scheduler():
         actual = scheduler.get_iteration_target(i)
         assert abs(actual - expected) < 0.01, f"Iteration {i}: expected {expected}, got {actual}"
     
-    print(f"? Linear schedule: {[f'{x:.1%}' for x in scheduler.schedule]}")
+    print(f"✓ Linear schedule: {[f'{x:.1%}' for x in scheduler.schedule]}")
     
     # Test exponential schedule
     scheduler_exp = IterativePruningScheduler(target_ratio=0.4, num_iterations=4, schedule_type='exponential')
@@ -50,7 +50,7 @@ def test_pruning_scheduler():
     assert exp_schedule[0] > expected_ratios[0]
     assert exp_schedule[-1] <= 0.4
     
-    print(f"? Exponential schedule: {[f'{x:.1%}' for x in exp_schedule]}")
+    print(f"✓ Exponential schedule: {[f'{x:.1%}' for x in exp_schedule]}")
     
     # Test conservative schedule
     scheduler_cons = IterativePruningScheduler(target_ratio=0.4, num_iterations=4, schedule_type='conservative')
@@ -60,7 +60,7 @@ def test_pruning_scheduler():
     assert cons_schedule[0] < expected_ratios[0]
     assert abs(cons_schedule[-1] - 0.4) < 0.01  # Should reach target
     
-    print(f"? Conservative schedule: {[f'{x:.1%}' for x in cons_schedule]}")
+    print(f"✓ Conservative schedule: {[f'{x:.1%}' for x in cons_schedule]}")
 
 def test_convergence_monitoring():
     """Test convergence monitoring functionality"""
@@ -73,36 +73,36 @@ def test_convergence_monitoring():
     # Test improving PSNR
     should_continue, reason = scheduler.should_continue(25.0, 0)  # First iteration
     assert should_continue
-    print(f"? First iteration: {reason}")
+    print(f"✓ First iteration: {reason}")
     
     should_continue, reason = scheduler.should_continue(26.0, 1)  # Improvement
     assert should_continue
     assert scheduler.bad_iterations == 0
-    print(f"? Improvement detected: {reason}")
+    print(f"✓ Improvement detected: {reason}")
     
     # Test no improvement
     should_continue, reason = scheduler.should_continue(25.8, 2)  # Small improvement
     assert should_continue
     assert scheduler.bad_iterations == 1
-    print(f"? Insufficient improvement: {reason}")
+    print(f"✓ Insufficient improvement: {reason}")
     
     should_continue, reason = scheduler.should_continue(25.5, 3)  # Decrease
     assert should_continue
     assert scheduler.bad_iterations == 2
-    print(f"? No improvement: {reason}")
+    print(f"✓ No improvement: {reason}")
     
     # Should stop due to patience
     should_continue, reason = scheduler.should_continue(25.0, 4)  # Further decrease
     assert not should_continue
     assert "No improvement" in reason
-    print(f"? Early stopping: {reason}")
+    print(f"✓ Early stopping: {reason}")
     
     # Test max iterations
     scheduler2 = IterativePruningScheduler(target_ratio=0.4, num_iterations=3)
     should_continue, reason = scheduler2.should_continue(30.0, 3)  # Beyond max
     assert not should_continue
     assert "Maximum iterations" in reason
-    print(f"? Max iterations: {reason}")
+    print(f"✓ Max iterations: {reason}")
 
 def test_pipeline_initialization():
     """Test IterativePruningPipeline initialization"""
@@ -127,7 +127,7 @@ def test_pipeline_initialization():
     assert default_config['num_iterations'] == 4
     assert default_config['schedule_type'] == 'linear'
     
-    print(f"? Pipeline initialized with {count_parameters(model):,} parameters")
+    print(f"✓ Pipeline initialized with {count_parameters(model):,} parameters")
     
     # Test with custom config
     custom_config = {
@@ -142,7 +142,7 @@ def test_pipeline_initialization():
     assert pipeline_custom.config['target_ratio'] == 0.3
     assert pipeline_custom.config['kd_alpha'] == 0.8
     
-    print("? Custom configuration applied successfully")
+    print("✓ Custom configuration applied successfully")
 
 def test_single_pruning_iteration():
     """Test a single pruning iteration"""
@@ -183,7 +183,7 @@ def test_single_pruning_iteration():
     new_params = count_parameters(pipeline.current_model)
     reduction = (original_params - new_params) / original_params
     
-    print(f"? Single iteration completed:")
+    print(f"✓ Single iteration completed:")
     print(f"  Original params: {original_params:,}")
     print(f"  New params: {new_params:,}")
     print(f"  Reduction: {reduction:.1%}")
@@ -226,7 +226,7 @@ def test_multiple_iterations():
     final_params = count_parameters(pipeline.current_model)
     total_reduction = (original_params - final_params) / original_params
     
-    print(f"? Multiple iterations completed:")
+    print(f"✓ Multiple iterations completed:")
     print(f"  Total reduction: {total_reduction:.1%}")
     print(f"  Final PSNR: {results[-1]['psnr']:.2f}dB")
     print(f"  Iteration PSNRs: {[f\"{r['psnr']:.1f}dB\" for r in results]}")
@@ -273,7 +273,7 @@ def test_complete_pipeline():
     assert final_results['final_psnr'] > 5.0       # Reasonable quality
     assert final_results['iterations_completed'] > 0
     
-    print(f"? Complete pipeline results:")
+    print(f"✓ Complete pipeline results:")
     print(f"  Success: {final_results['success']}")
     print(f"  Final reduction: {final_results['final_reduction']:.1%}")
     print(f"  Final PSNR: {final_results['final_psnr']:.2f}dB")
@@ -315,7 +315,7 @@ def test_early_stopping():
     # Should stop before max iterations due to lack of improvement
     assert results['iterations_completed'] < config['num_iterations']
     
-    print(f"? Early stopping triggered after {results['iterations_completed']} iterations")
+    print(f"✓ Early stopping triggered after {results['iterations_completed']} iterations")
 
 def test_different_schedules():
     """Test different pruning schedules"""
@@ -348,7 +348,7 @@ def test_different_schedules():
         assert result['final_reduction'] > 0.05  # At least 5%
         assert result['success'] == True
     
-    print("? All schedule types completed successfully")
+    print("✓ All schedule types completed successfully")
 
 def test_error_handling():
     """Test error handling and edge cases"""
@@ -360,20 +360,20 @@ def test_error_handling():
         assert False, "Should have raised ValueError"
     except ValueError as e:
         assert "Unknown schedule type" in str(e)
-        print("? Invalid schedule type handled")
+        print("✓ Invalid schedule type handled")
     
     # Test zero iterations
     scheduler = IterativePruningScheduler(num_iterations=0)
     should_continue, reason = scheduler.should_continue(25.0, 0)
     assert not should_continue
     assert "Maximum iterations" in reason
-    print("? Zero iterations handled")
+    print("✓ Zero iterations handled")
     
     # Test negative target ratio (should work, but clamp to reasonable values)
     scheduler = IterativePruningScheduler(target_ratio=-0.1)
     # Should still create a schedule
     assert len(scheduler.schedule) > 0
-    print("? Negative target ratio handled")
+    print("✓ Negative target ratio handled")
 
 def main():
     """Run all Chunk 4 tests"""
@@ -393,31 +393,31 @@ def main():
         test_error_handling()
         
         print("\n" + "="*60)
-        print("?? ALL CHUNK 4 TESTS PASSED!")
+        print("🎉 ALL CHUNK 4 TESTS PASSED!")
         print("="*60)
         
         print("\nKey Validation Results:")
-        print("? Pruning schedule generation working correctly")
-        print("? Convergence monitoring functional")
-        print("? Single iteration pipeline operational")
-        print("? Multi-iteration progression validated")
-        print("? Complete pipeline integration successful")
-        print("? Early stopping mechanism working")
-        print("? Different schedule types supported")
-        print("? Error handling robust")
+        print("✓ Pruning schedule generation working correctly")
+        print("✓ Convergence monitoring functional")
+        print("✓ Single iteration pipeline operational")
+        print("✓ Multi-iteration progression validated")
+        print("✓ Complete pipeline integration successful")
+        print("✓ Early stopping mechanism working")
+        print("✓ Different schedule types supported")
+        print("✓ Error handling robust")
         
         print("\nChunk 4 Implementation Ready:")
-        print("� Multi-stage pruning schedule ?")
-        print("� Intermediate fine-tuning with KD ?")
-        print("� Convergence monitoring ?")
-        print("� Early stopping mechanism ?")
-        print("� Progressive parameter reduction ?")
-        print("� Quality preservation tracking ?")
+        print("• Multi-stage pruning schedule ✓")
+        print("• Intermediate fine-tuning with KD ✓")
+        print("• Convergence monitoring ✓")
+        print("• Early stopping mechanism ✓")
+        print("• Progressive parameter reduction ✓")
+        print("• Quality preservation tracking ✓")
         
-        print("\n?? All 4 chunks validated and ready for publication!")
+        print("\n🚀 All 4 chunks validated and ready for publication!")
         
     except Exception as e:
-        print(f"\n? TEST FAILED: {e}")
+        print(f"\n❌ TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
 
