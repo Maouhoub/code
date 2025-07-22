@@ -246,13 +246,15 @@ class IterativePruningPipeline:
             # Get original model dimensions
             original_embed_dim = getattr(self.current_model, 'embed_dim', 96)
             original_heads = getattr(self.current_model, 'num_heads', 4)
+            original_layers = getattr(self.current_model, 'num_layers', 2)
             
             # Reduce dimensions based on pruning ratio
             reduction_factor = 1 - pruning_plan['summary']['actual_ratio']
             new_embed_dim = max(32, int(original_embed_dim * reduction_factor))
             new_heads = max(1, int(original_heads * reduction_factor))
+            new_layers = max(1, int(original_layers * reduction_factor))
             
-            print(f"Before adjustment: original={original_embed_dim}, new_embed_dim={new_embed_dim}, heads={new_heads}")
+            print(f"Before adjustment: original={original_embed_dim}, new_embed_dim={new_embed_dim}, heads={new_heads}, layers={new_layers}")
             
             # Ensure embed_dim is divisible by 4 for pixel shuffle (2x upscaling)
             new_embed_dim = ((new_embed_dim + 3) // 4) * 4
@@ -261,17 +263,17 @@ class IterativePruningPipeline:
             while new_embed_dim % new_heads != 0 and new_heads > 1:
                 new_heads -= 1
             
-            print(f"After adjustment: embed_dim={new_embed_dim}, heads={new_heads}")
+            print(f"After adjustment: embed_dim={new_embed_dim}, heads={new_heads}, layers={new_layers}")
             
             # Import the mock model from test_integration
             from test_integration import IntegratedSwinIRModel
             pruned_model = IntegratedSwinIRModel(
                 embed_dim=new_embed_dim,
                 num_heads=new_heads,
-                num_layers=2
+                num_layers=new_layers
             )
             
-            print(f"Created pruned model: embed_dim={new_embed_dim}, num_heads={new_heads}")
+            print(f"Created pruned model: embed_dim={new_embed_dim}, num_heads={new_heads}, num_layers={new_layers}")
         else:
             # No significant pruning, return copy
             pruned_model = copy.deepcopy(self.current_model)
