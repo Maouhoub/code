@@ -373,27 +373,27 @@ def main():
         print("="*60)
         
         print("\nKey Validation Results:")
-        print("? Knowledge distillation loss computation working")
-        print("? High-frequency preservation functional")
-        print("? Feature-level distillation implemented")
-        print("? Teacher-student training step validated")
-        print("? Loss component weighting verified")
-        print("? End-to-end pipeline functional")
-        print("? PSNR calculation accurate")
-        print("? Training convergence demonstrated")
+        print(" Knowledge distillation loss computation working")
+        print(" High-frequency preservation functional")
+        print(" Feature-level distillation implemented")
+        print(" Teacher-student training step validated")
+        print(" Loss component weighting verified")
+        print(" End-to-end pipeline functional")
+        print(" PSNR calculation accurate")
+        print(" Training convergence demonstrated")
         
         print("\nChunk 3 Implementation Ready:")
-        print("• Feature-level distillation loss ?")
-        print("• High-frequency preservation loss ?") 
-        print("• Combined training objective ?")
-        print("• Teacher-student training loop ?")
-        print("• Quality recovery validation ?")
+        print("• Feature-level distillation loss ")
+        print("• High-frequency preservation loss ") 
+        print("• Combined training objective ")
+        print("• Teacher-student training loop ")
+        print("• Quality recovery validation ")
         print("• PSNR monitoring and calculation ?")
         
         print("\n?? All chunks (1, 2, 3) validated and ready for integration!")
         
     except Exception as e:
-        print(f"\n? TEST FAILED: {e}")
+        print(f"\n TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
 
