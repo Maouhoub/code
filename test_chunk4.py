@@ -70,7 +70,7 @@ def test_convergence_monitoring():
     scheduler.patience = 2
     scheduler.min_improvement = 0.5
     
-    # Test improving PSNR
+    # Test improving PSNR (first iteration should set baseline)
     should_continue, reason = scheduler.should_continue(25.0, 0)  # First iteration
     assert should_continue
     print(f"✓ First iteration: {reason}")
@@ -80,10 +80,10 @@ def test_convergence_monitoring():
     assert scheduler.bad_iterations == 0
     print(f"✓ Improvement detected: {reason}")
     
-    # Test no improvement
-    should_continue, reason = scheduler.should_continue(25.8, 2)  # Small improvement
+    # Test small improvement (should count as bad iteration)
+    should_continue, reason = scheduler.should_continue(26.2, 2)  # Small improvement
     assert should_continue
-    assert scheduler.bad_iterations == 1
+    assert scheduler.bad_iterations == 1  # Should increment bad iterations
     print(f"✓ Insufficient improvement: {reason}")
     
     should_continue, reason = scheduler.should_continue(25.5, 3)  # Decrease
