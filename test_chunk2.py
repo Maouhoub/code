@@ -75,7 +75,7 @@ def test_pruning_plan_generation():
     assert summary['actual_ratio'] > 0  # Should have some pruning
     assert summary['total_pruned_params'] > 0
     
-    print(f"? Pruning plan generated successfully:")
+    print(f"✓ Pruning plan generated successfully:")
     print(f"  Attention heads to prune: {len(attention_plan['heads_to_prune'])}/8")
     print(f"  MLP channels to prune: {len(channel_plan['channels_to_prune'])}/64")
     print(f"  Estimated parameter reduction: {summary['actual_ratio']:.1%}")
@@ -95,7 +95,7 @@ def test_model_parameter_counting():
     expected_count = (100 * 50 + 50) + (50 * 10 + 10)  # 5560
     
     assert param_count == expected_count
-    print(f"? Parameter counting correct: {param_count:,} parameters")
+    print(f"✓ Parameter counting correct: {param_count:,} parameters")
 
 class MockSwinIRModel(nn.Module):
     """Mock SwinIR model for testing"""
@@ -137,7 +137,7 @@ def test_structured_pruner_with_mock_model():
     assert len(pruner.head_masks) >= 2  # Should find 2 attention layers
     assert len(pruner.channel_masks) >= 3  # Should find 3 MLP layers
     
-    print(f"? Found {len(pruner.head_masks)} attention layers and {len(pruner.channel_masks)} MLP layers")
+    print(f"✓ Found {len(pruner.head_masks)} attention layers and {len(pruner.channel_masks)} MLP layers")
     
     # Simulate training by setting some importance scores low
     for mask in pruner.head_masks.values():
@@ -162,11 +162,11 @@ def test_structured_pruner_with_mock_model():
         output_original = model(test_input)
         output_pruned = pruned_model(test_input)
         assert output_original.shape == output_pruned.shape
-        print("? Pruned model maintains functionality")
+        print("✓ Pruned model maintains functionality")
     except Exception as e:
-        print(f"? Model functionality test skipped: {e}")
+        print(f"⚠ Model functionality test skipped: {e}")
     
-    print(f"? Structured pruning pipeline completed successfully")
+    print(f"✓ Structured pruning pipeline completed successfully")
 
 def test_importance_score_manipulation():
     """Test that importance scores can be manipulated for pruning"""
@@ -203,7 +203,7 @@ def test_importance_score_manipulation():
     assert len(channels_to_prune) == 16  # Should prune last 16 channels
     assert len(channels_to_keep) == 16   # Should keep first 16 channels
     
-    print(f"? Importance-based selection working correctly:")
+    print(f"✓ Importance-based selection working correctly:")
     print(f"  Heads to prune: {heads_to_prune.tolist()}")
     print(f"  Channels to prune: {len(channels_to_prune)}/32")
 
@@ -297,7 +297,7 @@ def test_pruning_plan_validation():
     assert summary['total_pruned_params'] > 0
     assert summary['total_original_params'] > summary['total_pruned_params']
     
-    print(f"? Pruning plan validation passed:")
+    print(f"✓ Pruning plan validation passed:")
     print(f"  Total layers processed: {len(plan['attention_heads']) + len(plan['mlp_channels'])}")
     print(f"  Achieved pruning ratio: {summary['actual_ratio']:.1%}")
 
@@ -337,7 +337,7 @@ def test_edge_cases():
     assert len(plan['attention_heads']['layer1']['heads_to_prune']) == 0  # No pruning
     assert len(plan['attention_heads']['layer1']['heads_to_keep']) == 4   # Keep all
     
-    print("? Edge cases handled correctly")
+    print("✓ Edge cases handled correctly")
 
 def main():
     """Run all Chunk 2 tests"""
@@ -354,26 +354,26 @@ def main():
         test_edge_cases()
         
         print("\n" + "="*60)
-        print("?? ALL CHUNK 2 TESTS PASSED!")
+        print("🎉 ALL CHUNK 2 TESTS PASSED!")
         print("="*60)
         
         print("\nKey Validation Results:")
-        print("? Pruning plan generation works correctly")
-        print("? Importance-based selection functional")
-        print("? Parameter counting accurate")
-        print("? Model structure preservation validated")
-        print("? Edge cases handled properly")
-        print("? Pruning pipeline integration successful")
+        print("✓ Pruning plan generation works correctly")
+        print("✓ Importance-based selection functional")
+        print("✓ Parameter counting accurate")
+        print("✓ Model structure preservation validated")
+        print("✓ Edge cases handled properly")
+        print("✓ Pruning pipeline integration successful")
         
         print("\nChunk 2 Implementation Ready:")
-        print("� Threshold-based pruning decisions ?")
-        print("� Physical component removal logic ?") 
-        print("� Architecture consistency checks ?")
-        print("� Parameter reduction calculation ?")
-        print("� Model functionality preservation ?")
+        print("• Threshold-based pruning decisions ✓")
+        print("• Physical component removal logic ✓") 
+        print("• Architecture consistency checks ✓")
+        print("• Parameter reduction calculation ✓")
+        print("• Model functionality preservation ✓")
         
     except Exception as e:
-        print(f"\n? TEST FAILED: {e}")
+        print(f"\n❌ TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
 
