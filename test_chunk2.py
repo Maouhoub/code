@@ -366,11 +366,11 @@ def main():
         print("✓ Pruning pipeline integration successful")
         
         print("\nChunk 2 Implementation Ready:")
-        print("• Threshold-based pruning decisions ✓")
-        print("• Physical component removal logic ✓") 
-        print("• Architecture consistency checks ✓")
-        print("• Parameter reduction calculation ✓")
-        print("• Model functionality preservation ✓")
+        print("Threshold-based pruning decisions ✓")
+        print("Physical component removal logic ✓") 
+        print("Architecture consistency checks ✓")
+        print("Parameter reduction calculation ✓")
+        print("Model functionality preservation ✓")
         
     except Exception as e:
         print(f"\n❌ TEST FAILED: {e}")
