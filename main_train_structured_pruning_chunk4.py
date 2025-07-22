@@ -243,17 +243,30 @@ class IterativePruningPipeline:
         # In practice, this would involve actual weight removal
         
         if pruning_plan['summary']['actual_ratio'] > 0.05:
-            # Get original model dimensions
-            original_embed_dim = getattr(self.current_model, 'embed_dim', 96)
-            original_heads = getattr(self.current_model, 'num_heads', 4)
-            original_layers = getattr(self.current_model, 'num_layers', 2)
-            
-            # Calculate original model size for comparison
+            # Detect current model's actual dimensions by examining its structure
             from test_integration import IntegratedSwinIRModel
+            
+            # Get the actual dimensions from the current model's structure
+            if hasattr(self.current_model, 'patch_embed') and hasattr(self.current_model.patch_embed, 'out_channels'):
+                original_embed_dim = self.current_model.patch_embed.out_channels
+            else:
+                original_embed_dim = 96  # fallback
+                
+            if hasattr(self.current_model, 'layers') and len(self.current_model.layers) > 0:
+                original_layers = len(self.current_model.layers)
+                # Get num_heads from first layer's attention
+                if hasattr(self.current_model.layers[0]['attention'], 'num_heads'):
+                    original_heads = self.current_model.layers[0]['attention'].num_heads
+                else:
+                    original_heads = original_embed_dim // 32  # estimate: head_dim = 32
+            else:
+                original_layers = 2
+                original_heads = 4
+            
             original_size = count_parameters(self.current_model)
             
-            # More aggressive reduction to ensure smaller model
-            reduction_factor = 0.7  # Fixed reduction factor to ensure pruning works
+            # Progressive reduction to ensure smaller model
+            reduction_factor = 0.6  # Start with 60% of original size
             new_embed_dim = max(16, int(original_embed_dim * reduction_factor))
             new_heads = max(1, int(original_heads * reduction_factor))
             new_layers = max(1, int(original_layers * reduction_factor))
@@ -267,7 +280,7 @@ class IterativePruningPipeline:
             while new_embed_dim % new_heads != 0 and new_heads > 1:
                 new_heads -= 1
             
-            # Create pruned model and check size
+            # Create pruned model and iteratively reduce if too large
             pruned_model = IntegratedSwinIRModel(
                 embed_dim=new_embed_dim,
                 num_heads=new_heads,
@@ -276,10 +289,15 @@ class IterativePruningPipeline:
             
             pruned_size = count_parameters(pruned_model)
             
-            # If pruned model is still too large, reduce further
+            # Keep reducing until we get a smaller model
             while pruned_size >= original_size and new_embed_dim > 16:
-                new_embed_dim = max(16, new_embed_dim - 4)
+                # Reduce embed_dim more aggressively
+                new_embed_dim = max(16, new_embed_dim - 8)
                 new_embed_dim = ((new_embed_dim + 3) // 4) * 4  # Keep divisible by 4
+                
+                # Reduce layers if embed_dim gets too small
+                if new_embed_dim <= 16 and new_layers > 1:
+                    new_layers = max(1, new_layers - 1)
                 
                 # Ensure heads divides embed_dim evenly
                 while new_embed_dim % new_heads != 0 and new_heads > 1:
@@ -291,6 +309,10 @@ class IterativePruningPipeline:
                     num_layers=new_layers
                 )
                 pruned_size = count_parameters(pruned_model)
+                
+                # Safety break to avoid infinite loop
+                if new_embed_dim <= 16 and new_layers <= 1 and new_heads <= 1:
+                    break
             
             print(f"After adjustment: embed_dim={new_embed_dim}, heads={new_heads}, layers={new_layers}")
             print(f"Size comparison: original={original_size:,}, pruned={pruned_size:,}")
