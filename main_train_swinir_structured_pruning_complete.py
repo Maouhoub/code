@@ -69,7 +69,7 @@ class ImportanceMaskManager:
                 if num_heads > 0:
                     mask = torch.ones(num_heads, device=self.device)
                     self.attention_masks[name] = mask
-                    print(f"  ✓ SwinIR Attention: {name} ({module_type}) - {num_heads} heads")
+                    print(f"  ? SwinIR Attention: {name} ({module_type}) - {num_heads} heads")
                     attention_count += 1
             
             # SwinIR MLP Detection  
@@ -78,7 +78,7 @@ class ImportanceMaskManager:
                 if channels > 0:
                     mask = torch.ones(channels, device=self.device)
                     self.channel_masks[name] = mask
-                    print(f"  ✓ SwinIR MLP: {name} ({module_type}) - {channels} channels")
+                    print(f"  ? SwinIR MLP: {name} ({module_type}) - {channels} channels")
                     channel_count += 1
         
         print(f"\nSwinIR Architecture Analysis Complete:")
@@ -170,14 +170,14 @@ class ImportanceMaskManager:
                 if num_heads > 0:
                     mask = torch.ones(num_heads, device=self.device)
                     self.attention_masks[name] = mask
-                    print(f"  ✓ Fallback Attention: {name} - {num_heads} heads")
+                    print(f"  ? Fallback Attention: {name} - {num_heads} heads")
                     attention_count += 1
             
             # Broader MLP detection
             elif isinstance(module, torch.nn.Linear) and module.out_features > 64:
                 mask = torch.ones(module.out_features, device=self.device)
                 self.channel_masks[name] = mask
-                print(f"  ✓ Fallback MLP: {name} - {module.out_features} channels")
+                print(f"  ? Fallback MLP: {name} - {module.out_features} channels")
                 channel_count += 1
                 if channel_count >= 15:  # Reasonable limit
                     break
@@ -413,7 +413,7 @@ class StructuredPruner:
         total_params = sum(p.numel() for p in network.parameters() if p.requires_grad)
         zero_params = total_params - params_after
         
-        print(f"📊 Detailed parameter analysis:")
+        print(f"?? Detailed parameter analysis:")
         print(f"   Total parameters: {total_params:,}")
         print(f"   Non-zero parameters: {params_after:,}")
         print(f"   Zeroed parameters: {zero_params:,}")
@@ -510,10 +510,10 @@ class StructuredPruner:
                     keep_mask[heads_to_remove] = False
                     self.mask_manager.attention_masks[layer_name] = keep_mask
                     
-                    print(f"  ✓ HARD pruned {heads_to_prune} attention heads in {layer_name}")
+                    print(f"  ? HARD pruned {heads_to_prune} attention heads in {layer_name}")
                     
                 except Exception as e:
-                    print(f"  ✗ Failed to prune attention heads in {layer_name}: {e}")
+                    print(f"  ? Failed to prune attention heads in {layer_name}: {e}")
     
     def _prune_mlp_channels(self, layer_name, channels_to_prune):
         """ACTUALLY zero out MLP channel weights"""
@@ -590,10 +590,10 @@ class StructuredPruner:
                     keep_mask[channels_to_remove] = False
                     self.mask_manager.channel_masks[layer_name] = keep_mask
                     
-                    print(f"  ✓ HARD pruned {channels_to_prune} MLP channels in {layer_name}")
+                    print(f"  ? HARD pruned {channels_to_prune} MLP channels in {layer_name}")
                     
                 except Exception as e:
-                    print(f"  ✗ Failed to prune MLP channels in {layer_name}: {e}")
+                    print(f"  ? Failed to prune MLP channels in {layer_name}: {e}")
 
 class KnowledgeDistillationTrainer:
     """Chunk 3: Knowledge Distillation for Fine-tuning"""
@@ -828,7 +828,11 @@ class IterativePruningPipeline:
         print(f"Registering activation capture hooks...")
         hook_count = 0
         
+        print(f"Debug: Found {len(self.mask_manager.attention_masks)} attention layers to hook")
+        print(f"Debug: Found {len(self.mask_manager.channel_masks)} channel layers to hook")
+        
         for layer_name in self.mask_manager.attention_masks.keys():
+            print(f"  Attempting to register attention hook for: {layer_name}")
             try:
                 # Navigate to the layer
                 current_module = network
@@ -841,10 +845,14 @@ class IterativePruningPipeline:
                 )
                 hooks.append(hook)
                 hook_count += 1
+                print(f"    ? Successfully registered attention hook #{hook_count}")
             except AttributeError as e:
-                print(f"  Warning: Could not register hook for {layer_name}: {e}")
+                print(f"    ? Could not register hook for {layer_name}: {e}")
+            except Exception as e:
+                print(f"    ? Unexpected error for {layer_name}: {e}")
         
         for layer_name in self.mask_manager.channel_masks.keys():
+            print(f"  Attempting to register channel hook for: {layer_name}")
             try:
                 # Navigate to the layer
                 current_module = network
@@ -857,8 +865,11 @@ class IterativePruningPipeline:
                 )
                 hooks.append(hook)
                 hook_count += 1
+                print(f"    ? Successfully registered channel hook #{hook_count}")
             except AttributeError as e:
-                print(f"  Warning: Could not register hook for {layer_name}: {e}")
+                print(f"    ? Could not register hook for {layer_name}: {e}")
+            except Exception as e:
+                print(f"    ? Unexpected error for {layer_name}: {e}")
         
         print(f"Registered {hook_count} activation capture hooks")
         
@@ -1188,8 +1199,8 @@ class ComprehensiveEvaluator:
         avg_pruned_time = np.mean(pruned_times) * 1000
         speedup = avg_original_time / avg_pruned_time if avg_pruned_time > 0 else 1.0
         
-        print(f"  Original model: {avg_original_time:.2f} ± {np.std(original_times)*1000:.2f} ms")
-        print(f"  Pruned model:   {avg_pruned_time:.2f} ± {np.std(pruned_times)*1000:.2f} ms")
+        print(f"  Original model: {avg_original_time:.2f} � {np.std(original_times)*1000:.2f} ms")
+        print(f"  Pruned model:   {avg_pruned_time:.2f} � {np.std(pruned_times)*1000:.2f} ms")
         print(f"  Speedup:        {speedup:.2f}x")
         
         return {
@@ -1283,8 +1294,8 @@ class ComprehensiveEvaluator:
         avg_pruned_psnr = np.mean(pruned_psnrs)
         avg_psnr_drop = avg_original_psnr - avg_pruned_psnr
         
-        print(f"  Original PSNR: {avg_original_psnr:.2f} ± {np.std(original_psnrs):.2f} dB")
-        print(f"  Pruned PSNR:   {avg_pruned_psnr:.2f} ± {np.std(pruned_psnrs):.2f} dB")
+        print(f"  Original PSNR: {avg_original_psnr:.2f} � {np.std(original_psnrs):.2f} dB")
+        print(f"  Pruned PSNR:   {avg_pruned_psnr:.2f} � {np.std(pruned_psnrs):.2f} dB")
         print(f"  PSNR Drop:     {avg_psnr_drop:.2f} dB")
         
         return {
@@ -1340,7 +1351,7 @@ class ComprehensiveEvaluator:
         print("\nSUCCESS CRITERIA EVALUATION:")
         print("-" * 50)
         for criterion, details in results['success_criteria'].items():
-            status = "✓ PASS" if details['passed'] else "✗ FAIL"
+            status = "? PASS" if details['passed'] else "? FAIL"
             print(f"{criterion:<20}: {status} (Target: {details['target']}, Achieved: {details['achieved']})")
         
         print("\nDETAILED RESULTS:")
@@ -1349,22 +1360,22 @@ class ComprehensiveEvaluator:
         # Performance metrics
         perf = results['performance_results']
         print(f"Performance Metrics:")
-        print(f"  Inference Time: {perf['original_inference_time']:.2f}ms → {perf['pruned_inference_time']:.2f}ms ({perf['speedup']:.2f}x speedup)")
+        print(f"  Inference Time: {perf['original_inference_time']:.2f}ms ? {perf['pruned_inference_time']:.2f}ms ({perf['speedup']:.2f}x speedup)")
         
         # Compression metrics
         comp = results['compression_results']
         print(f"Compression Metrics:")
-        print(f"  Parameters:     {comp['original_params']:,} → {comp['pruned_params']:,} ({comp['param_reduction']:.1%} reduction)")
-        print(f"  Model Size:     {comp['original_size_mb']:.2f}MB → {comp['pruned_size_mb']:.2f}MB ({comp['size_reduction']:.1%} reduction)")
+        print(f"  Parameters:     {comp['original_params']:,} ? {comp['pruned_params']:,} ({comp['param_reduction']:.1%} reduction)")
+        print(f"  Model Size:     {comp['original_size_mb']:.2f}MB ? {comp['pruned_size_mb']:.2f}MB ({comp['size_reduction']:.1%} reduction)")
         
         # Quality metrics
         qual = results['quality_results']
         print(f"Quality Metrics:")
-        print(f"  PSNR:           {qual['original_psnr']:.2f}dB → {qual['pruned_psnr']:.2f}dB ({qual['avg_psnr_drop']:.2f}dB drop)")
+        print(f"  PSNR:           {qual['original_psnr']:.2f}dB ? {qual['pruned_psnr']:.2f}dB ({qual['avg_psnr_drop']:.2f}dB drop)")
         
         print(f"\nEvaluation Time: {results['evaluation_time']:.2f}s")
         
-        overall_result = "🎉 SUCCESS" if results['success'] else "❌ NEEDS IMPROVEMENT"
+        overall_result = "?? SUCCESS" if results['success'] else "? NEEDS IMPROVEMENT"
         print(f"\nOverall Result: {overall_result}")
 
 
@@ -1532,7 +1543,7 @@ def main(json_path='options/train_swinir_light.json'):
         pipeline_results = pipeline.run_complete_pipeline(train_loader, test_loader)
         
         if pipeline_results['success']:
-            print("\n🎉 Pruning pipeline completed successfully!")
+            print("\n?? Pruning pipeline completed successfully!")
             
             # Get the pruned model
             pruned_model = pipeline_results['final_model']
@@ -1625,7 +1636,7 @@ def main(json_path='options/train_swinir_light.json'):
             print(f"Parameter Reduction:     {total_reduction:.1%}")
             print(f"Final PSNR:              {avg_psnr:.2f}dB")
             print(f"Average Inference Time:  {avg_inference_time:.4f}s")
-            print(f"Evaluation Success:      {'✓ PASS' if evaluation_results['success'] else '✗ FAIL'}")
+            print(f"Evaluation Success:      {'? PASS' if evaluation_results['success'] else '? FAIL'}")
             
             # Save final model - Fix the model saving issue
             print("\nSaving final pruned model...")
@@ -1649,18 +1660,18 @@ def main(json_path='options/train_swinir_light.json'):
                     'pruning_config': opt
                 }, save_path)
                 
-                print(f"✓ Model saved successfully to: {save_path}")
+                print(f"? Model saved successfully to: {save_path}")
                 
             except Exception as e:
-                print(f"✗ Failed to save model: {e}")
+                print(f"? Failed to save model: {e}")
                 # Try alternative saving method
                 try:
                     save_name = f'pruned_{total_reduction:.1%}_backup.pth'
                     save_path = os.path.join(opt['path']['models'], save_name)
                     torch.save(pruned_model.state_dict(), save_path)
-                    print(f"✓ Backup model saved to: {save_path}")
+                    print(f"? Backup model saved to: {save_path}")
                 except Exception as e2:
-                    print(f"✗ Backup save also failed: {e2}")
+                    print(f"? Backup save also failed: {e2}")
             
             # Save results
             results_file = os.path.join(opt['path']['log'], 'pruning_results.txt')
@@ -1680,10 +1691,10 @@ def main(json_path='options/train_swinir_light.json'):
                            f"PSNR={iteration['psnr_after']:.2f}dB\n")
             
             print(f"Results saved to: {results_file}")
-            print("\n🎉 Structured pruning training completed successfully!")
+            print("\n?? Structured pruning training completed successfully!")
             
         else:
-            print("❌ Pruning pipeline failed!")
+            print("? Pruning pipeline failed!")
             return
 
 if __name__ == '__main__':
