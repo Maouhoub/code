@@ -606,11 +606,18 @@ class IterativePruningPipeline:
         return results
     
     def _count_parameters(self, model):
-        """Count total parameters in model"""
+        """Count effective parameters in model accounting for pruning masks"""
         if hasattr(model, 'netG'):
-            return sum(p.numel() for p in model.netG.parameters() if p.requires_grad)
+            network = model.netG
         else:
-            return sum(p.numel() for p in model.parameters() if p.requires_grad)
+            network = model
+            
+        if hasattr(self, 'pruner') and hasattr(self.pruner, '_count_parameters'):
+            # Use the pruner's parameter counting method which accounts for masks
+            return self.pruner._count_parameters()
+        else:
+            # Fallback to standard counting
+            return sum(p.numel() for p in network.parameters() if p.requires_grad)
     
     def _collect_importance_scores(self, train_loader):
         """Collect importance scores from a few training batches"""
@@ -1288,12 +1295,8 @@ def main(json_path='options/train_swinir_light.json'):
             print("="*70)
             
             # Handle both model types for parameter counting
-            if hasattr(pipeline.original_model, 'netG'):
-                original_params = sum(p.numel() for p in pipeline.original_model.netG.parameters())
-                final_params = sum(p.numel() for p in pruned_model.netG.parameters())
-            else:
-                original_params = sum(p.numel() for p in pipeline.original_model.parameters())
-                final_params = sum(p.numel() for p in pruned_model.parameters())
+            original_params = pipeline._count_parameters(pipeline.original_model)
+            final_params = pipeline._count_parameters(pruned_model)
             
             total_reduction = (original_params - final_params) / original_params
             
@@ -1306,7 +1309,6 @@ def main(json_path='options/train_swinir_light.json'):
             
             # Save final model
             print("\nSaving final pruned model...")
-            save_dir = opt['path']['models']
             model.save_network(pruned_model.netG, 'G', f'pruned_{total_reduction:.1%}', iter_label=f'pruned_{total_reduction:.1%}')
             
             # Save results
