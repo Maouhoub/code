@@ -161,6 +161,94 @@ class StructuredPruner:
     def __init__(self, model, mask_manager):
         self.model = model
         self.mask_manager = mask_manager
+        self.hooks = []  # Store forward hooks for mask application
+        self._register_pruning_hooks()  # Apply masks during forward pass
+        
+    def _register_pruning_hooks(self):
+        """Register forward hooks to apply pruning masks during forward pass"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        
+        def create_attention_hook(layer_name):
+            def attention_hook(module, input, output):
+                if layer_name in self.mask_manager.attention_masks:
+                    mask = self.mask_manager.attention_masks[layer_name]
+                    # Apply pruning by zeroing weights during forward pass
+                    if hasattr(module, 'qkv') and hasattr(module.qkv, 'weight'):
+                        weight = module.qkv.weight
+                        num_heads = getattr(module, 'num_heads', 8)
+                        head_dim = weight.shape[0] // (3 * num_heads)
+                        
+                        with torch.no_grad():
+                            # Zero out pruned heads
+                            for head_idx in range(min(num_heads, len(mask))):
+                                if not mask[head_idx]:
+                                    # Zero Q, K, V for pruned head
+                                    start_q = head_idx * head_dim
+                                    end_q = (head_idx + 1) * head_dim
+                                    start_k = num_heads * head_dim + head_idx * head_dim
+                                    end_k = num_heads * head_dim + (head_idx + 1) * head_dim
+                                    start_v = 2 * num_heads * head_dim + head_idx * head_dim
+                                    end_v = 2 * num_heads * head_dim + (head_idx + 1) * head_dim
+                                    
+                                    weight[start_q:end_q] = 0
+                                    weight[start_k:end_k] = 0
+                                    weight[start_v:end_v] = 0
+                return output
+            return attention_hook
+        
+        def create_mlp_hook(layer_name):
+            def mlp_hook(module, input, output):
+                if layer_name in self.mask_manager.channel_masks:
+                    mask = self.mask_manager.channel_masks[layer_name]
+                    if hasattr(module, 'weight'):
+                        with torch.no_grad():
+                            # Apply channel pruning
+                            for channel_idx in range(min(len(mask), module.weight.shape[0])):
+                                if not mask[channel_idx]:
+                                    if 'fc1' in layer_name:  # Output channels
+                                        module.weight[channel_idx] = 0
+                                        if hasattr(module, 'bias') and module.bias is not None:
+                                            module.bias[channel_idx] = 0
+                            
+                            # For fc2 layers, prune input channels
+                            if 'fc2' in layer_name and len(mask) <= module.weight.shape[1]:
+                                for channel_idx in range(len(mask)):
+                                    if not mask[channel_idx]:
+                                        module.weight[:, channel_idx] = 0
+                return output
+            return mlp_hook
+        
+        # Register hooks for all attention and MLP layers
+        hook_count = 0
+        for layer_name in self.mask_manager.attention_masks.keys():
+            try:
+                layer = network
+                for part in layer_name.split('.'):
+                    layer = getattr(layer, part)
+                hook = layer.register_forward_hook(create_attention_hook(layer_name))
+                self.hooks.append(hook)
+                hook_count += 1
+            except AttributeError:
+                pass
+        
+        for layer_name in self.mask_manager.channel_masks.keys():
+            try:
+                layer = network
+                for part in layer_name.split('.'):
+                    layer = getattr(layer, part)
+                hook = layer.register_forward_hook(create_mlp_hook(layer_name))
+                self.hooks.append(hook)
+                hook_count += 1
+            except AttributeError:
+                pass
+        
+        print(f"Registered {hook_count} pruning hooks for mask application")
+    
+    def remove_hooks(self):
+        """Remove all registered hooks"""
+        for hook in self.hooks:
+            hook.remove()
+        self.hooks = []
         
     def create_pruning_plan(self, target_ratio, importance_threshold=0.5):
         """Create structured pruning plan based on importance scores"""
@@ -240,9 +328,17 @@ class StructuredPruner:
         return actual_reduction
     
     def _count_parameters(self):
-        """Count total trainable parameters in the model"""
+        """Count non-zero trainable parameters in the model (accounting for pruning)"""
         network = self.model.netG if hasattr(self.model, 'netG') else self.model
-        return sum(p.numel() for p in network.parameters() if p.requires_grad)
+        total_params = 0
+        
+        for name, param in network.named_parameters():
+            if param.requires_grad:
+                # Count only non-zero parameters
+                non_zero_params = torch.count_nonzero(param).item()
+                total_params += non_zero_params
+                
+        return total_params
     
     def _prune_attention_heads(self, layer_name, heads_to_prune):
         """Actually prune attention heads by reducing layer dimensions"""
@@ -255,39 +351,24 @@ class StructuredPruner:
                 heads_to_remove = indices[:heads_to_prune]
                 heads_to_keep = indices[heads_to_prune:]
                 
-                # Get the actual layer
+                # Get the actual layer - navigate through the network structure
                 network = self.model.netG if hasattr(self.model, 'netG') else self.model
-                layer = network
-                for part in layer_name.split('.'):
-                    layer = getattr(layer, part)
+                parent = network
+                layer_parts = layer_name.split('.')
                 
-                # Actually prune the layer parameters
-                if hasattr(layer, 'num_heads'):
-                    old_heads = layer.num_heads
-                    layer.num_heads = len(heads_to_keep)
-                    
-                    # Prune qkv projections
-                    if hasattr(layer, 'qkv'):
-                        with torch.no_grad():
-                            qkv_weight = layer.qkv.weight
-                            head_dim = qkv_weight.shape[0] // (3 * old_heads)
-                            
-                            # Reshape to separate heads
-                            q_weight = qkv_weight[:old_heads * head_dim]
-                            k_weight = qkv_weight[old_heads * head_dim:2 * old_heads * head_dim]
-                            v_weight = qkv_weight[2 * old_heads * head_dim:]
-                            
-                            # Keep only important heads
-                            q_keep = torch.cat([q_weight[i*head_dim:(i+1)*head_dim] for i in heads_to_keep])
-                            k_keep = torch.cat([k_weight[i*head_dim:(i+1)*head_dim] for i in heads_to_keep])
-                            v_keep = torch.cat([v_weight[i*head_dim:(i+1)*head_dim] for i in heads_to_keep])
-                            
-                            # Update weights
-                            new_qkv_weight = torch.cat([q_keep, k_keep, v_keep])
-                            layer.qkv.weight.data = new_qkv_weight
-                            layer.qkv.out_features = new_qkv_weight.shape[0]
+                # Navigate to parent of the target layer
+                for part in layer_parts[:-1]:
+                    parent = getattr(parent, part)
                 
-                print(f"  Actually pruned {heads_to_prune} heads from {layer_name} (kept {len(heads_to_keep)})")
+                final_attr = layer_parts[-1]
+                layer = getattr(parent, final_attr)
+                
+                # Update attention mask for this layer
+                keep_mask = torch.ones(importance.size(0), dtype=torch.bool, device=importance.device)
+                keep_mask[heads_to_remove] = False
+                self.mask_manager.attention_masks[layer_name] = keep_mask
+                
+                print(f"  Updated attention mask for {layer_name}: pruned {heads_to_prune} heads (kept {len(heads_to_keep)})")
     
     def _prune_mlp_channels(self, layer_name, channels_to_prune):
         """Actually prune MLP channels by reducing layer dimensions"""
@@ -300,35 +381,24 @@ class StructuredPruner:
                 channels_to_remove = indices[:channels_to_prune]
                 channels_to_keep = indices[channels_to_prune:]
                 
-                # Get the actual layer
+                # Get the actual layer - navigate through the network structure
                 network = self.model.netG if hasattr(self.model, 'netG') else self.model
-                layer = network
-                for part in layer_name.split('.'):
-                    layer = getattr(layer, part)
+                parent = network
+                layer_parts = layer_name.split('.')
                 
-                # Actually prune the layer parameters
-                if isinstance(layer, nn.Linear):
-                    with torch.no_grad():
-                        # Prune output features
-                        if 'fc1' in layer_name:  # First FC layer - prune output
-                            old_weight = layer.weight.data
-                            old_bias = layer.bias.data if layer.bias is not None else None
-                            
-                            new_weight = old_weight[channels_to_keep]
-                            layer.weight.data = new_weight
-                            layer.out_features = len(channels_to_keep)
-                            
-                            if old_bias is not None:
-                                new_bias = old_bias[channels_to_keep]
-                                layer.bias.data = new_bias
-                                
-                        elif 'fc2' in layer_name:  # Second FC layer - prune input
-                            old_weight = layer.weight.data
-                            new_weight = old_weight[:, channels_to_keep]
-                            layer.weight.data = new_weight
-                            layer.in_features = len(channels_to_keep)
+                # Navigate to parent of the target layer
+                for part in layer_parts[:-1]:
+                    parent = getattr(parent, part)
                 
-                print(f"  Actually pruned {channels_to_prune} channels from {layer_name} (kept {len(channels_to_keep)})")
+                final_attr = layer_parts[-1]
+                layer = getattr(parent, final_attr)
+                
+                # Update channel mask for this layer
+                keep_mask = torch.ones(importance.size(0), dtype=torch.bool, device=importance.device)
+                keep_mask[channels_to_remove] = False
+                self.mask_manager.channel_masks[layer_name] = keep_mask
+                
+                print(f"  Updated channel mask for {layer_name}: pruned {channels_to_prune} channels (kept {len(channels_to_keep)})")
 
 class KnowledgeDistillationTrainer:
     """Chunk 3: Knowledge Distillation for Fine-tuning"""
@@ -1207,7 +1277,7 @@ def main(json_path='options/train_swinir_light.json'):
             # Save final model
             print("\nSaving final pruned model...")
             save_dir = opt['path']['models']
-            model.save_network(save_dir, pruned_model.netG, 'G', f'pruned_{total_reduction:.1%}')
+            model.save_network(pruned_model.netG, 'G', f'pruned_{total_reduction:.1%}', iter_label=f'pruned_{total_reduction:.1%}')
             
             # Save results
             results_file = os.path.join(opt['path']['log'], 'pruning_results.txt')
