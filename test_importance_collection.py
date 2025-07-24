@@ -23,6 +23,106 @@ except ImportError as e:
     sys.exit(1)
 
 
+class MockSwinIRAttention(nn.Module):
+    """Mock SwinIR attention module for testing"""
+    def __init__(self, dim=96, num_heads=6):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.qkv = nn.Linear(dim, dim * 3, bias=True)
+        self.proj = nn.Linear(dim, dim)
+        
+    def forward(self, x):
+        # Proper forward pass that matches the structure expected by hooks
+        B, L, C = x.shape
+        qkv = self.qkv(x).reshape(B, L, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        
+        # Compute attention
+        attn = (q @ k.transpose(-2, -1)) * (self.head_dim ** -0.5)
+        attn = F.softmax(attn, dim=-1)
+        
+        x = (attn @ v).transpose(1, 2).reshape(B, L, C)
+        x = self.proj(x)
+        return x
+
+
+class MockSwinIRMLP(nn.Module):
+    """Mock SwinIR MLP module for testing"""
+    def __init__(self, in_features=96, hidden_features=384):
+        super().__init__()
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.fc2 = nn.Linear(hidden_features, in_features)
+        self.act = nn.GELU()
+        
+    def forward(self, x):
+        return self.fc2(self.act(self.fc1(x)))
+
+
+class MockSwinIRBlock(nn.Module):
+    """Mock SwinIR transformer block for testing"""
+    def __init__(self, dim=96, num_heads=6, mlp_ratio=4.0):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(dim)
+        self.attn = MockSwinIRAttention(dim, num_heads)
+        self.norm2 = nn.LayerNorm(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = MockSwinIRMLP(dim, mlp_hidden_dim)
+        
+    def forward(self, x):
+        # Proper transformer block forward pass
+        x = x + self.attn(self.norm1(x))
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+
+class MockSwinIRModelEnhanced(nn.Module):
+    """Enhanced Mock SwinIR model for testing importance collection"""
+    def __init__(self, img_size=64, embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6]):
+        super().__init__()
+        
+        # Input processing
+        self.conv_first = nn.Conv2d(3, embed_dim, 3, 1, 1)
+        self.patch_embed = nn.Linear(embed_dim, embed_dim)
+        
+        # Create mock layers structure similar to real SwinIR
+        self.layers = nn.ModuleList()
+        
+        for i_layer in range(len(depths)):
+            layer = nn.ModuleList()
+            for i_block in range(depths[i_layer]):
+                block = MockSwinIRBlock(
+                    dim=embed_dim * (2 ** i_layer),
+                    num_heads=num_heads[i_layer]
+                )
+                layer.append(block)
+            self.layers.append(layer)
+        
+        # Output processing
+        self.conv_last = nn.Conv2d(embed_dim, 3, 3, 1, 1)
+        
+    def forward(self, x):
+        # Proper forward pass that generates realistic activations
+        B, C, H, W = x.shape
+        
+        # Patch embedding simulation
+        x = self.conv_first(x)  # [B, embed_dim, H, W]
+        x = x.flatten(2).transpose(1, 2)  # [B, H*W, embed_dim]
+        x = self.patch_embed(x)
+        
+        # Pass through transformer layers
+        for layer in self.layers:
+            for block in layer:
+                x = block(x)
+        
+        # Reconstruct output
+        x = x.transpose(1, 2).reshape(B, -1, H, W)
+        x = self.conv_last(x)
+        
+        return x
+
+
 class MockDataLoader:
     """Mock data loader for testing importance collection"""
     def __init__(self, batch_size=2, num_batches=5, device='cuda'):
@@ -48,15 +148,17 @@ class MockDataLoader:
         return batch
 
 
-class TestableModel(MockModel):
+class TestableModel:
     """Enhanced mock model with proper feed_data method for testing"""
     def __init__(self):
-        super().__init__()
+        self.netG = MockSwinIRModelEnhanced()
         self.current_batch = None
     
     def feed_data(self, batch):
         """Mock feed_data method"""
         self.current_batch = batch
+        # For compatibility, ensure model is aware of the data
+        return self
     
     def test(self):
         """Mock test method"""
@@ -70,6 +172,16 @@ class TestableModel(MockModel):
                 'H': self.current_batch['H']   # High-res target
             }
         return {'E': torch.zeros(2, 3, 64, 64), 'H': torch.zeros(2, 3, 64, 64)}
+    
+    def eval(self):
+        """Mock eval method to set model to evaluation mode"""
+        self.netG.eval()
+        return self
+    
+    def train(self):
+        """Mock train method to set model to training mode"""
+        self.netG.train()
+        return self
 
 
 def test_importance_collection_hooks():
