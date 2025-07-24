@@ -214,47 +214,121 @@ class StructuredPruner:
         print(f"  Target ratio: {pruning_plan['target_ratio']:.1%}")
         print(f"  Estimated reduction: {pruning_plan['estimated_reduction']:.1%}")
         
+        # Count parameters before pruning
+        params_before = self._count_parameters()
+        print(f"  Parameters before pruning: {params_before:,}")
+        
         # Apply attention head pruning
         for layer_name, heads_to_prune in pruning_plan['attention_heads'].items():
-            print(f"Attention layer {layer_name}: {heads_to_prune} heads to prune")
-            self._prune_attention_heads(layer_name, heads_to_prune)
+            if heads_to_prune > 0:
+                print(f"Attention layer {layer_name}: {heads_to_prune} heads to prune")
+                self._prune_attention_heads(layer_name, heads_to_prune)
         
         # Apply MLP channel pruning
         for layer_name, channels_to_prune in pruning_plan['mlp_channels'].items():
-            print(f"MLP layer {layer_name}: {channels_to_prune} channels to prune")
-            self._prune_mlp_channels(layer_name, channels_to_prune)
+            if channels_to_prune > 0:
+                print(f"MLP layer {layer_name}: {channels_to_prune} channels to prune")
+                self._prune_mlp_channels(layer_name, channels_to_prune)
         
-        return pruning_plan['estimated_reduction']
+        # Count parameters after pruning
+        params_after = self._count_parameters()
+        actual_reduction = (params_before - params_after) / params_before
+        
+        print(f"  Parameters after pruning: {params_after:,}")
+        print(f"  Actual reduction: {actual_reduction:.1%}")
+        
+        return actual_reduction
+    
+    def _count_parameters(self):
+        """Count total trainable parameters in the model"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        return sum(p.numel() for p in network.parameters() if p.requires_grad)
     
     def _prune_attention_heads(self, layer_name, heads_to_prune):
-        """Prune attention heads in specified layer"""
-        if layer_name in self.mask_manager.attention_masks:
-            mask = self.mask_manager.attention_masks[layer_name]
+        """Actually prune attention heads by reducing layer dimensions"""
+        if layer_name in self.mask_manager.attention_masks and heads_to_prune > 0:
             importance = self.mask_manager.importance_scores.get(layer_name)
             
-            if importance is not None and heads_to_prune > 0:
+            if importance is not None:
                 # Find least important heads
                 _, indices = torch.sort(importance)
                 heads_to_remove = indices[:heads_to_prune]
+                heads_to_keep = indices[heads_to_prune:]
                 
-                # Update mask
-                mask[heads_to_remove] = 0
-                print(f"  Pruned heads {heads_to_remove.tolist()} from {layer_name}")
+                # Get the actual layer
+                network = self.model.netG if hasattr(self.model, 'netG') else self.model
+                layer = network
+                for part in layer_name.split('.'):
+                    layer = getattr(layer, part)
+                
+                # Actually prune the layer parameters
+                if hasattr(layer, 'num_heads'):
+                    old_heads = layer.num_heads
+                    layer.num_heads = len(heads_to_keep)
+                    
+                    # Prune qkv projections
+                    if hasattr(layer, 'qkv'):
+                        with torch.no_grad():
+                            qkv_weight = layer.qkv.weight
+                            head_dim = qkv_weight.shape[0] // (3 * old_heads)
+                            
+                            # Reshape to separate heads
+                            q_weight = qkv_weight[:old_heads * head_dim]
+                            k_weight = qkv_weight[old_heads * head_dim:2 * old_heads * head_dim]
+                            v_weight = qkv_weight[2 * old_heads * head_dim:]
+                            
+                            # Keep only important heads
+                            q_keep = torch.cat([q_weight[i*head_dim:(i+1)*head_dim] for i in heads_to_keep])
+                            k_keep = torch.cat([k_weight[i*head_dim:(i+1)*head_dim] for i in heads_to_keep])
+                            v_keep = torch.cat([v_weight[i*head_dim:(i+1)*head_dim] for i in heads_to_keep])
+                            
+                            # Update weights
+                            new_qkv_weight = torch.cat([q_keep, k_keep, v_keep])
+                            layer.qkv.weight.data = new_qkv_weight
+                            layer.qkv.out_features = new_qkv_weight.shape[0]
+                
+                print(f"  Actually pruned {heads_to_prune} heads from {layer_name} (kept {len(heads_to_keep)})")
     
     def _prune_mlp_channels(self, layer_name, channels_to_prune):
-        """Prune MLP channels in specified layer"""
-        if layer_name in self.mask_manager.channel_masks:
-            mask = self.mask_manager.channel_masks[layer_name]
+        """Actually prune MLP channels by reducing layer dimensions"""
+        if layer_name in self.mask_manager.channel_masks and channels_to_prune > 0:
             importance = self.mask_manager.importance_scores.get(layer_name)
             
-            if importance is not None and channels_to_prune > 0:
+            if importance is not None:
                 # Find least important channels
                 _, indices = torch.sort(importance)
                 channels_to_remove = indices[:channels_to_prune]
+                channels_to_keep = indices[channels_to_prune:]
                 
-                # Update mask
-                mask[channels_to_remove] = 0
-                print(f"  Pruned {len(channels_to_remove)} channels from {layer_name}")
+                # Get the actual layer
+                network = self.model.netG if hasattr(self.model, 'netG') else self.model
+                layer = network
+                for part in layer_name.split('.'):
+                    layer = getattr(layer, part)
+                
+                # Actually prune the layer parameters
+                if isinstance(layer, nn.Linear):
+                    with torch.no_grad():
+                        # Prune output features
+                        if 'fc1' in layer_name:  # First FC layer - prune output
+                            old_weight = layer.weight.data
+                            old_bias = layer.bias.data if layer.bias is not None else None
+                            
+                            new_weight = old_weight[channels_to_keep]
+                            layer.weight.data = new_weight
+                            layer.out_features = len(channels_to_keep)
+                            
+                            if old_bias is not None:
+                                new_bias = old_bias[channels_to_keep]
+                                layer.bias.data = new_bias
+                                
+                        elif 'fc2' in layer_name:  # Second FC layer - prune input
+                            old_weight = layer.weight.data
+                            new_weight = old_weight[:, channels_to_keep]
+                            layer.weight.data = new_weight
+                            layer.in_features = len(channels_to_keep)
+                
+                print(f"  Actually pruned {channels_to_prune} channels from {layer_name} (kept {len(channels_to_keep)})")
 
 class KnowledgeDistillationTrainer:
     """Chunk 3: Knowledge Distillation for Fine-tuning"""
@@ -472,46 +546,101 @@ class IterativePruningPipeline:
     
     def _fine_tune_with_kd(self, train_loader, epochs):
         """Fine-tune model with knowledge distillation"""
+        print(f"Fine-tuning for {epochs} epochs...")
+        
+        # Get the correct optimizer
+        if hasattr(self.model, 'G_optimizer'):
+            optimizer = self.model.G_optimizer
+        elif hasattr(self.model, 'optimizers') and 'G' in self.model.optimizers:
+            optimizer = self.model.optimizers['G']
+        else:
+            print("ERROR: No optimizer found! Creating a new one...")
+            optimizer = torch.optim.Adam(self.model.netG.parameters(), lr=1e-4)
+        
+        # Check and adjust learning rate
+        for param_group in optimizer.param_groups:
+            if param_group['lr'] < 1e-6:
+                print(f"WARNING: Learning rate too small: {param_group['lr']}")
+                param_group['lr'] = 1e-4
+                print(f"Adjusted learning rate to: {param_group['lr']}")
+        
         for epoch in range(epochs):
-            total_loss = 0
+            epoch_losses = []
             num_batches = 0
             
             for batch in train_loader:
-                self.model.feed_data(batch)
-                
                 # Get device from model
-                device = next(self.model.parameters()).device
+                device = next(self.model.netG.parameters()).device
                 
                 # Ensure batch data is on correct device
                 L_input = batch['L'].to(device)
                 H_target = batch['H'].to(device)
                 
-                # Get teacher and student outputs
+                # Feed data to models
+                self.model.feed_data(batch)
+                
+                # Get teacher output (no gradients)
                 with torch.no_grad():
                     self.kd_trainer.teacher_model.feed_data(batch)
                     teacher_output = self.kd_trainer.teacher_model.netG(L_input)
+                    teacher_output = teacher_output.detach()
                 
+                # Get student output
                 student_output = self.model.netG(L_input)
                 
-                # Compute distillation loss (simplified)
+                # Compute losses with proper scaling
                 mse_loss = F.mse_loss(student_output, H_target)
                 teacher_student_loss = F.mse_loss(student_output, teacher_output)
                 
-                total_loss_value = 0.7 * teacher_student_loss + 0.3 * mse_loss
+                # Combined loss - emphasize ground truth more
+                total_loss = 0.3 * teacher_student_loss + 0.7 * mse_loss
+                
+                # Debug loss values on first batch
+                if epoch == 0 and num_batches == 0:
+                    print(f"  Debug - MSE Loss: {mse_loss.item():.6f}")
+                    print(f"  Debug - KD Loss: {teacher_student_loss.item():.6f}")
+                    print(f"  Debug - Total Loss: {total_loss.item():.6f}")
+                    print(f"  Debug - LR: {optimizer.param_groups[0]['lr']}")
+                
+                # Check for reasonable loss values
+                if total_loss.item() < 1e-6:
+                    print(f"WARNING: Loss too small ({total_loss.item():.8f})")
                 
                 # Backward pass
-                self.model.G_optimizer.zero_grad()
-                total_loss_value.backward()
-                self.model.G_optimizer.step()
+                optimizer.zero_grad()
+                total_loss.backward()
                 
-                total_loss += total_loss_value.item()
+                # Check gradients
+                total_grad_norm = 0
+                for param in self.model.netG.parameters():
+                    if param.grad is not None:
+                        total_grad_norm += param.grad.data.norm(2).item() ** 2
+                total_grad_norm = total_grad_norm ** 0.5
+                
+                if epoch == 0 and num_batches == 0:
+                    print(f"  Debug - Gradient Norm: {total_grad_norm:.6f}")
+                
+                if total_grad_norm < 1e-8:
+                    print(f"WARNING: Gradients too small ({total_grad_norm:.8f})")
+                
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(self.model.netG.parameters(), max_norm=1.0)
+                
+                optimizer.step()
+                
+                epoch_losses.append(total_loss.item())
                 num_batches += 1
                 
                 if num_batches >= 10:  # Limit batches for efficiency
                     break
             
-            avg_loss = total_loss / num_batches if num_batches > 0 else 0
-            print(f"  Fine-tuning epoch {epoch + 1}/{epochs}: Loss={avg_loss:.4f}")
+            avg_loss = np.mean(epoch_losses) if epoch_losses else 0
+            print(f"  Fine-tuning epoch {epoch + 1}/{epochs}: Loss={avg_loss:.6f} (batches: {num_batches})")
+            
+            # Early stopping if loss becomes too small
+            if avg_loss < 1e-6:
+                print("WARNING: Loss became too small, stopping early")
+                break
     
     def _evaluate_model(self, test_loader):
         """Evaluate model PSNR on test set"""
@@ -1077,7 +1206,8 @@ def main(json_path='options/train_swinir_light.json'):
             
             # Save final model
             print("\nSaving final pruned model...")
-            model.save_network(pruned_model.netG, 'G', f'pruned_{total_reduction:.1%}')
+            save_dir = opt['path']['models']
+            model.save_network(save_dir, pruned_model.netG, 'G', f'pruned_{total_reduction:.1%}')
             
             # Save results
             results_file = os.path.join(opt['path']['log'], 'pruning_results.txt')
