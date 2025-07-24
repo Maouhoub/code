@@ -94,16 +94,10 @@ class SimpleMockSwinIR(nn.Module):
     def forward(self, x):
         # Simple forward pass
         B, C, H, W = x.shape
-        x = x.view(B, C * H * W, -1)  # Flatten for simplicity
+        x = x.flatten(2).transpose(1, 2)  # [B, H*W, C] for transformer processing
         
-        # Pad/slice to match expected dimensions
-        target_dim = self.embed_dim
-        if x.shape[-1] != target_dim:
-            if x.shape[-1] > target_dim:
-                x = x[:, :, :target_dim]
-            else:
-                pad_size = target_dim - x.shape[-1]
-                x = F.pad(x, (0, pad_size))
+        # Ensure we have the right sequence length
+        seq_len = x.shape[1]
         
         # Process through layers
         for i_layer, layer in enumerate(self.layers):
@@ -119,10 +113,18 @@ class SimpleMockSwinIR(nn.Module):
             for block in layer:
                 x = block(x)
         
-        # Final projection
-        x = x.mean(dim=1)  # Global average pooling
-        x = self.head(x)
-        x = x.view(B, 3, H, W)  # Reshape back to image format
+        # Final projection and reshape back
+        x = x.mean(dim=1)  # Global average pooling [B, C]
+        if x.shape[-1] != self.embed_dim * (2 ** (self.num_layers - 1)):
+            # Adjust for head input dimension
+            target_dim = self.embed_dim * (2 ** (self.num_layers - 1))
+            if x.shape[-1] > target_dim:
+                x = x[:, :target_dim]
+            else:
+                x = F.pad(x, (0, target_dim - x.shape[-1]))
+        
+        x = self.head(x)  # [B, 3]
+        x = x.unsqueeze(-1).unsqueeze(-1).expand(B, 3, H, W)  # Expand back to [B, 3, H, W]
         return x
 
 class MockModel:
