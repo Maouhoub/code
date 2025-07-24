@@ -139,6 +139,14 @@ class MockModel:
         
     def current_visuals(self):
         return {'E': torch.randn(1, 3, 64, 64), 'H': torch.randn(1, 3, 64, 64)}
+    
+    def parameters(self):
+        """Expose the underlying network parameters"""
+        return self.netG.parameters()
+    
+    def named_parameters(self):
+        """Expose the underlying network named parameters"""
+        return self.netG.named_parameters()
 
 def count_zero_parameters(model):
     """Count the number of zero parameters in a model"""
