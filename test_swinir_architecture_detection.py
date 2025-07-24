@@ -137,7 +137,9 @@ def test_swinir_architecture_detection():
     print(f"\n6. Detection Quality Assessment:")
     
     # Count expected vs detected layers
-    expected_attention = 4 * 6  # 4 layers * 6 blocks each
+    # Expected: 4 layers * 6 blocks = 24 attention modules (not including sub-components)
+    # Expected: 4 layers * 6 blocks * 2 MLP layers (fc1, fc2) = 48 MLP layers
+    expected_attention = 4 * 6  # 4 layers * 6 blocks each (main attn modules only)
     expected_mlp = 4 * 6 * 2   # 4 layers * 6 blocks * 2 MLPs per block (fc1, fc2)
     
     attention_ratio = len(mask_manager.attention_masks) / expected_attention
@@ -150,6 +152,14 @@ def test_swinir_architecture_detection():
     print(f"   Expected MLP layers: {expected_mlp}")
     print(f"   Detected MLP layers: {len(mask_manager.channel_masks)}")
     print(f"   Detection ratio: {mlp_ratio:.2f}")
+    
+    # Check for over-detection (too many sub-components detected)
+    qkv_detected = sum(1 for name in mask_manager.attention_masks.keys() if 'qkv' in name.lower())
+    proj_detected = sum(1 for name in mask_manager.attention_masks.keys() if 'proj' in name.lower())
+    
+    print(f"   Sub-component detection check:")
+    print(f"     QKV layers detected: {qkv_detected} (should be 0 for clean detection)")
+    print(f"     Proj layers detected: {proj_detected} (should be 0 for clean detection)")
     
     # Test importance score computation
     print(f"\n7. Testing importance score computation...")
@@ -181,9 +191,10 @@ def test_swinir_architecture_detection():
         "Mask initialization": success,
         "Attention detection": len(mask_manager.attention_masks) > 0,
         "MLP detection": len(mask_manager.channel_masks) > 0,
-        "Reasonable attention ratio": 0.5 <= attention_ratio <= 2.0,
-        "Reasonable MLP ratio": 0.5 <= mlp_ratio <= 2.0,
+        "Reasonable attention ratio": 0.8 <= attention_ratio <= 1.2,  # More precise range
+        "Reasonable MLP ratio": 0.8 <= mlp_ratio <= 1.2,
         "Importance computation": len(mask_manager.importance_scores) > 0,
+        "Clean detection (no sub-components)": qkv_detected == 0 and proj_detected == 0,
     }
     
     passed_tests = 0

@@ -92,32 +92,43 @@ class ImportanceMaskManager:
         return len(self.attention_masks) + len(self.channel_masks) > 0
     
     def _is_swinir_attention(self, name, module):
-        """Check if module is a SwinIR attention layer"""
+        """Check if module is a SwinIR attention layer - be more selective"""
         name_lower = name.lower()
         module_type = type(module).__name__
         
-        # SwinIR attention patterns
+        # SwinIR attention patterns - more restrictive to avoid duplicates
         swinir_attention_indicators = [
-            'layers' in name_lower and 'attn' in name_lower,
-            'blocks' in name_lower and 'attn' in name_lower,
-            hasattr(module, 'qkv') and hasattr(module, 'num_heads'),
+            # Main attention modules (not sub-components like qkv, proj)
+            ('layers' in name_lower and 'attn' in name_lower and 
+             hasattr(module, 'qkv') and hasattr(module, 'num_heads') and
+             'qkv' not in name_lower and 'proj' not in name_lower),
+            
+            # Direct WindowAttention modules
             'WindowAttention' in module_type,
-            'SwinTransformerBlock' in module_type and 'attn' in name_lower
+            
+            # SwinTransformerBlock attention (main module only)
+            ('SwinTransformerBlock' in module_type and 'attn' in name_lower and
+             'qkv' not in name_lower and 'proj' not in name_lower)
         ]
         
         return any(swinir_attention_indicators)
     
     def _is_swinir_mlp(self, name, module):
-        """Check if module is a SwinIR MLP layer"""
+        """Check if module is a SwinIR MLP layer - be more selective"""
         name_lower = name.lower()
         module_type = type(module).__name__
         
-        # SwinIR MLP patterns
+        # SwinIR MLP patterns - only the actual Linear layers in MLP
         swinir_mlp_indicators = [
-            'layers' in name_lower and 'mlp' in name_lower and isinstance(module, torch.nn.Linear),
-            'blocks' in name_lower and 'mlp' in name_lower and isinstance(module, torch.nn.Linear),
-            'mlp.fc1' in name_lower or 'mlp.fc2' in name_lower,
-            hasattr(module, 'in_features') and hasattr(module, 'out_features') and 'mlp' in name_lower
+            # Only fc1 and fc2 layers within MLP blocks
+            ('layers' in name_lower and 'mlp' in name_lower and 
+             isinstance(module, torch.nn.Linear) and
+             ('fc1' in name_lower or 'fc2' in name_lower)),
+            
+            # Alternative naming patterns
+            ('blocks' in name_lower and 'mlp' in name_lower and 
+             isinstance(module, torch.nn.Linear) and
+             ('fc1' in name_lower or 'fc2' in name_lower)),
         ]
         
         return any(swinir_mlp_indicators)
