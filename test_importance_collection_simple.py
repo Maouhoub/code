@@ -203,7 +203,7 @@ def test_basic_importance_collection():
     print(f"   MLP layers found: {len(mask_manager.channel_masks)}")
     
     if not success or len(mask_manager.attention_masks) == 0:
-        print("   ? Failed to initialize masks properly")
+        print("   ❌ Failed to initialize masks properly")
         return False
     
     # Create pipeline
@@ -220,16 +220,16 @@ def test_basic_importance_collection():
     try:
         pipeline._collect_importance_scores(data_loader)
         collection_success = True
-        print("   ? Importance collection completed without errors")
+        print("   ✓ Importance collection completed without errors")
     except Exception as e:
         collection_success = False
-        print(f"   ? Importance collection failed: {e}")
+        print(f"   ✗ Importance collection failed: {e}")
         import traceback
         traceback.print_exc()
     
     # Check results
     importance_computed = len(pipeline.mask_manager.importance_scores) > 0
-    print(f"   Importance scores computed: {'? YES' if importance_computed else '? NO'}")
+    print(f"   Importance scores computed: {'✓ YES' if importance_computed else '✗ NO'}")
     print(f"   Number of layers with importance: {len(pipeline.mask_manager.importance_scores)}")
     
     if importance_computed:
@@ -274,7 +274,7 @@ def test_hook_registration():
         hook2 = mlp_layer.register_forward_hook(test_hook("test_mlp"))
         hooks_registered += 1
         
-        print(f"   ? Registered {hooks_registered} test hooks")
+        print(f"   ✓ Registered {hooks_registered} test hooks")
         
         # Test forward pass
         print("2. Testing forward pass with hooks...")
@@ -294,12 +294,12 @@ def test_hook_registration():
         hook2.remove()
         
         success = captured_count > 0
-        print(f"   Hook test: {'? SUCCESS' if success else '? FAILED'}")
+        print(f"   Hook test: {'✓ SUCCESS' if success else '✗ FAILED'}")
         
         return success
         
     except Exception as e:
-        print(f"   ? Hook registration failed: {e}")
+        print(f"   ✗ Hook registration failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -343,7 +343,7 @@ def test_fallback_mechanism():
                 mask_manager.importance_scores[name] = torch.randn(num_channels, device=device)
         
         fallback_count = len(mask_manager.importance_scores)
-        print(f"   ? Generated fallback scores for {fallback_count} layers")
+        print(f"   ✓ Generated fallback scores for {fallback_count} layers")
         
         if fallback_count > 0:
             print("   Sample fallback scores:")
@@ -354,7 +354,7 @@ def test_fallback_mechanism():
         return fallback_count > 0
         
     except Exception as e:
-        print(f"   ? Fallback generation failed: {e}")
+        print(f"   ✗ Fallback generation failed: {e}")
         return False
 
 
@@ -379,7 +379,7 @@ def main():
     total_tests = len(test_results)
     
     for test_name, passed in test_results.items():
-        status = "? PASSED" if passed else "? FAILED"
+        status = "✓ PASSED" if passed else "✗ FAILED"
         print(f"{status} {test_name}")
         if passed:
             passed_tests += 1
@@ -387,16 +387,16 @@ def main():
     print(f"\nOverall: {passed_tests}/{total_tests} tests passed")
     
     if passed_tests >= 2:  # At least 2 out of 3 should pass
-        print("\n?? CORE FUNCTIONALITY WORKING!")
-        print("? The importance collection system has basic functionality")
+        print("\n🎉 CORE FUNCTIONALITY WORKING!")
+        print("✅ The importance collection system has basic functionality")
         if passed_tests == total_tests:
-            print("? All tests passed - importance collection is fully functional")
+            print("✅ All tests passed - importance collection is fully functional")
         else:
-            print("??  Some tests failed but core system works")
+            print("⚠️  Some tests failed but core system works")
         success = True
     else:
-        print("\n? CORE FUNCTIONALITY BROKEN")
-        print("? The importance collection system needs significant fixes")
+        print("\n❌ CORE FUNCTIONALITY BROKEN")
+        print("❌ The importance collection system needs significant fixes")
         success = False
     
     return success
