@@ -331,47 +331,34 @@ class StructuredPruner:
         print(f"  Parameters after pruning: {params_after:,}")
         print(f"  Actual reduction: {actual_reduction:.1%}")
         
+        # Additional verification - show zero vs non-zero parameters
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        total_params = sum(p.numel() for p in network.parameters() if p.requires_grad)
+        zero_params = total_params - params_after
+        
+        print(f"📊 Detailed parameter analysis:")
+        print(f"   Total parameters: {total_params:,}")
+        print(f"   Non-zero parameters: {params_after:,}")
+        print(f"   Zeroed parameters: {zero_params:,}")
+        print(f"   Actual sparsity: {zero_params/total_params*100:.2f}%")
+        
         return actual_reduction
     
     def _count_parameters(self):
-        """Count effective trainable parameters in the model (accounting for pruning masks)"""
+        """Count ACTUAL non-zero parameters in the model"""
         network = self.model.netG if hasattr(self.model, 'netG') else self.model
-        total_params = 0
-        pruned_params = 0
+        total_effective_params = 0
         
         for name, param in network.named_parameters():
             if param.requires_grad:
-                param_count = param.numel()
-                total_params += param_count
-                
-                # Calculate how many parameters are effectively pruned by our masks
-                layer_name = name.replace('.weight', '').replace('.bias', '')
-                
-                # Check if this layer has attention masks
-                if any(mask_name in layer_name for mask_name in self.mask_manager.attention_masks.keys()):
-                    for mask_name, mask in self.mask_manager.attention_masks.items():
-                        if mask_name in layer_name and hasattr(mask, 'numel'):
-                            # Estimate pruned parameters based on mask
-                            pruned_ratio = 1.0 - (torch.sum(mask.float()) / mask.numel()).item()
-                            if 'qkv' in name:  # QKV projection parameters
-                                pruned_params += int(param_count * pruned_ratio * 0.8)  # Conservative estimate
-                            break
-                
-                # Check if this layer has channel masks  
-                if any(mask_name in layer_name for mask_name in self.mask_manager.channel_masks.keys()):
-                    for mask_name, mask in self.mask_manager.channel_masks.items():
-                        if mask_name in layer_name and hasattr(mask, 'numel'):
-                            # Estimate pruned parameters based on mask
-                            pruned_ratio = 1.0 - (torch.sum(mask.float()) / mask.numel()).item()
-                            if 'fc1' in name or 'fc2' in name:  # MLP parameters
-                                pruned_params += int(param_count * pruned_ratio * 0.6)  # Conservative estimate
-                            break
+                # Count only non-zero parameters (actual effective parameters)
+                non_zero_params = torch.count_nonzero(param).item()
+                total_effective_params += non_zero_params
         
-        effective_params = total_params - pruned_params
-        return max(effective_params, total_params // 2)  # Ensure we don't go below 50%
+        return total_effective_params
     
     def _prune_attention_heads(self, layer_name, heads_to_prune):
-        """Actually prune attention heads by reducing layer dimensions"""
+        """ACTUALLY zero out attention head weights"""
         if layer_name in self.mask_manager.attention_masks and heads_to_prune > 0:
             importance = self.mask_manager.importance_scores.get(layer_name)
             
@@ -382,26 +369,77 @@ class StructuredPruner:
                 heads_to_keep = indices[heads_to_prune:]
                 
                 # Get the actual layer - navigate through the network structure
-                network = self.model.netG if hasattr(self.model, 'netG') else self.model
-                parent = network
-                layer_parts = layer_name.split('.')
-                
-                # Navigate to parent of the target layer
-                for part in layer_parts[:-1]:
-                    parent = getattr(parent, part)
-                
-                final_attr = layer_parts[-1]
-                layer = getattr(parent, final_attr)
-                
-                # Update attention mask for this layer
-                keep_mask = torch.ones(importance.size(0), dtype=torch.bool, device=importance.device)
-                keep_mask[heads_to_remove] = False
-                self.mask_manager.attention_masks[layer_name] = keep_mask
-                
-                print(f"  Updated attention mask for {layer_name}: pruned {heads_to_prune} heads (kept {len(heads_to_keep)})")
+                try:
+                    network = self.model.netG if hasattr(self.model, 'netG') else self.model
+                    current_module = network
+                    parts = layer_name.split('.')
+                    for part in parts[:-1]:
+                        current_module = getattr(current_module, part)
+                    
+                    final_layer = getattr(current_module, parts[-1])
+                    
+                    # Find QKV linear layer and ACTUALLY zero weights
+                    if hasattr(final_layer, 'qkv'):
+                        qkv_layer = final_layer.qkv
+                        num_heads = getattr(final_layer, 'num_heads', 6)
+                        
+                        with torch.no_grad():
+                            weight = qkv_layer.weight
+                            if weight.numel() > 0:
+                                # Calculate head dimensions
+                                total_dim = weight.shape[0]
+                                head_dim = total_dim // (3 * num_heads)
+                                
+                                # HARD PRUNE: Zero out least important heads
+                                for head_idx in heads_to_remove:
+                                    if head_idx < num_heads:
+                                        # Zero Q, K, V for this head
+                                        start_q = head_idx * head_dim
+                                        end_q = (head_idx + 1) * head_dim
+                                        start_k = num_heads * head_dim + head_idx * head_dim  
+                                        end_k = num_heads * head_dim + (head_idx + 1) * head_dim
+                                        start_v = 2 * num_heads * head_dim + head_idx * head_dim
+                                        end_v = 2 * num_heads * head_dim + (head_idx + 1) * head_dim
+                                        
+                                        # Zero the weights permanently
+                                        if end_q <= weight.shape[0]:
+                                            weight[start_q:end_q] = 0.0
+                                        if end_k <= weight.shape[0]:
+                                            weight[start_k:end_k] = 0.0  
+                                        if end_v <= weight.shape[0]:
+                                            weight[start_v:end_v] = 0.0
+                                
+                                # Also zero bias if exists
+                                if hasattr(qkv_layer, 'bias') and qkv_layer.bias is not None:
+                                    bias = qkv_layer.bias
+                                    for head_idx in heads_to_remove:
+                                        if head_idx < num_heads:
+                                            start_q = head_idx * head_dim
+                                            end_q = (head_idx + 1) * head_dim
+                                            start_k = num_heads * head_dim + head_idx * head_dim
+                                            end_k = num_heads * head_dim + (head_idx + 1) * head_dim
+                                            start_v = 2 * num_heads * head_dim + head_idx * head_dim
+                                            end_v = 2 * num_heads * head_dim + (head_idx + 1) * head_dim
+                                            
+                                            if end_q <= bias.shape[0]:
+                                                bias[start_q:end_q] = 0.0
+                                            if end_k <= bias.shape[0]:
+                                                bias[start_k:end_k] = 0.0
+                                            if end_v <= bias.shape[0]:
+                                                bias[start_v:end_v] = 0.0
+                    
+                    # Update attention mask for this layer
+                    keep_mask = torch.ones(importance.size(0), dtype=torch.bool, device=importance.device)
+                    keep_mask[heads_to_remove] = False
+                    self.mask_manager.attention_masks[layer_name] = keep_mask
+                    
+                    print(f"  ✓ HARD pruned {heads_to_prune} attention heads in {layer_name}")
+                    
+                except Exception as e:
+                    print(f"  ✗ Failed to prune attention heads in {layer_name}: {e}")
     
     def _prune_mlp_channels(self, layer_name, channels_to_prune):
-        """Actually prune MLP channels by reducing layer dimensions"""
+        """ACTUALLY zero out MLP channel weights"""
         if layer_name in self.mask_manager.channel_masks and channels_to_prune > 0:
             importance = self.mask_manager.importance_scores.get(layer_name)
             
@@ -412,23 +450,73 @@ class StructuredPruner:
                 channels_to_keep = indices[channels_to_prune:]
                 
                 # Get the actual layer - navigate through the network structure
-                network = self.model.netG if hasattr(self.model, 'netG') else self.model
-                parent = network
-                layer_parts = layer_name.split('.')
-                
-                # Navigate to parent of the target layer
-                for part in layer_parts[:-1]:
-                    parent = getattr(parent, part)
-                
-                final_attr = layer_parts[-1]
-                layer = getattr(parent, final_attr)
-                
-                # Update channel mask for this layer
-                keep_mask = torch.ones(importance.size(0), dtype=torch.bool, device=importance.device)
-                keep_mask[channels_to_remove] = False
-                self.mask_manager.channel_masks[layer_name] = keep_mask
-                
-                print(f"  Updated channel mask for {layer_name}: pruned {channels_to_prune} channels (kept {len(channels_to_keep)})")
+                try:
+                    network = self.model.netG if hasattr(self.model, 'netG') else self.model
+                    current_module = network
+                    parts = layer_name.split('.')
+                    for part in parts[:-1]:
+                        current_module = getattr(current_module, part)
+                    
+                    final_layer = getattr(current_module, parts[-1])
+                    
+                    # Find FC layers in MLP and ACTUALLY zero weights
+                    if hasattr(final_layer, 'fc1') and hasattr(final_layer, 'fc2'):
+                        fc1_layer = final_layer.fc1
+                        fc2_layer = final_layer.fc2
+                        
+                        with torch.no_grad():
+                            # Zero fc1 output weights (columns) - these are the intermediate channels
+                            if hasattr(fc1_layer, 'weight') and fc1_layer.weight.numel() > 0:
+                                weight1 = fc1_layer.weight
+                                for channel_idx in channels_to_remove:
+                                    if channel_idx < weight1.shape[0]:
+                                        # Zero entire row for this output channel
+                                        weight1[channel_idx, :] = 0.0
+                                
+                                # Zero fc1 bias if exists
+                                if hasattr(fc1_layer, 'bias') and fc1_layer.bias is not None:
+                                    bias1 = fc1_layer.bias
+                                    for channel_idx in channels_to_remove:
+                                        if channel_idx < bias1.shape[0]:
+                                            bias1[channel_idx] = 0.0
+                            
+                            # Zero fc2 input weights (rows) - these are the intermediate channels
+                            if hasattr(fc2_layer, 'weight') and fc2_layer.weight.numel() > 0:
+                                weight2 = fc2_layer.weight
+                                for channel_idx in channels_to_remove:
+                                    if channel_idx < weight2.shape[1]:
+                                        # Zero entire column for this input channel
+                                        weight2[:, channel_idx] = 0.0
+                    
+                    elif hasattr(final_layer, 'weight'):
+                        # Direct weight access for simple linear layers
+                        with torch.no_grad():
+                            weight = final_layer.weight
+                            for channel_idx in channels_to_remove:
+                                if channel_idx < min(weight.shape):
+                                    # Zero weights associated with this channel
+                                    if len(weight.shape) >= 2:
+                                        if channel_idx < weight.shape[0]:
+                                            weight[channel_idx, :] = 0.0
+                                        if channel_idx < weight.shape[1]:
+                                            weight[:, channel_idx] = 0.0
+                            
+                            # Zero bias if exists
+                            if hasattr(final_layer, 'bias') and final_layer.bias is not None:
+                                bias = final_layer.bias
+                                for channel_idx in channels_to_remove:
+                                    if channel_idx < bias.shape[0]:
+                                        bias[channel_idx] = 0.0
+                    
+                    # Update channel mask for this layer
+                    keep_mask = torch.ones(importance.size(0), dtype=torch.bool, device=importance.device)
+                    keep_mask[channels_to_remove] = False
+                    self.mask_manager.channel_masks[layer_name] = keep_mask
+                    
+                    print(f"  ✓ HARD pruned {channels_to_prune} MLP channels in {layer_name}")
+                    
+                except Exception as e:
+                    print(f"  ✗ Failed to prune MLP channels in {layer_name}: {e}")
 
 class KnowledgeDistillationTrainer:
     """Chunk 3: Knowledge Distillation for Fine-tuning"""
@@ -904,32 +992,46 @@ class ComprehensiveEvaluator:
         """Analyze model compression metrics"""
         print("Analyzing model compression...")
         
-        # Handle both model types
+        # Handle both model types - count ACTUAL non-zero parameters
         if hasattr(self.original_model, 'netG'):
-            original_params = sum(p.numel() for p in self.original_model.netG.parameters())
-            pruned_params = sum(p.numel() for p in self.pruned_model.netG.parameters())
+            original_params = sum(torch.count_nonzero(p).item() for p in self.original_model.netG.parameters())
+            pruned_params = sum(torch.count_nonzero(p).item() for p in self.pruned_model.netG.parameters())
+            total_original = sum(p.numel() for p in self.original_model.netG.parameters())
+            total_pruned = sum(p.numel() for p in self.pruned_model.netG.parameters())
         else:
-            original_params = sum(p.numel() for p in self.original_model.parameters())
-            pruned_params = sum(p.numel() for p in self.pruned_model.parameters())
+            original_params = sum(torch.count_nonzero(p).item() for p in self.original_model.parameters())
+            pruned_params = sum(torch.count_nonzero(p).item() for p in self.pruned_model.parameters())
+            total_original = sum(p.numel() for p in self.original_model.parameters())
+            total_pruned = sum(p.numel() for p in self.pruned_model.parameters())
         
-        param_reduction = (original_params - pruned_params) / original_params
+        param_reduction = (original_params - pruned_params) / original_params if original_params > 0 else 0
         
-        # Estimate model sizes (assuming float32)
-        original_size = original_params * 4 / 1024 / 1024  # MB
+        # Calculate sparsity
+        original_sparsity = (total_original - original_params) / total_original if total_original > 0 else 0
+        pruned_sparsity = (total_pruned - pruned_params) / total_pruned if total_pruned > 0 else 0
+        
+        # Estimate model sizes (assuming float32) - only non-zero params count
+        original_size = original_params * 4 / 1024 / 1024  # MB (non-zero only)
         pruned_size = pruned_params * 4 / 1024 / 1024
-        size_reduction = (original_size - pruned_size) / original_size
+        size_reduction = (original_size - pruned_size) / original_size if original_size > 0 else 0
         
-        print(f"Original parameters: {original_params:,}")
-        print(f"Pruned parameters:   {pruned_params:,}")
-        print(f"Parameter reduction: {param_reduction:.1%}")
-        print(f"Original model size: {original_size:.2f} MB")
-        print(f"Pruned model size:   {pruned_size:.2f} MB")
-        print(f"Size reduction:      {size_reduction:.1%}")
+        print(f"Original total parameters:   {total_original:,}")
+        print(f"Original non-zero parameters: {original_params:,}")
+        print(f"Original sparsity:           {original_sparsity:.2%}")
+        print(f"Pruned total parameters:     {total_pruned:,}")
+        print(f"Pruned non-zero parameters:  {pruned_params:,}")
+        print(f"Pruned sparsity:             {pruned_sparsity:.2%}")
+        print(f"Parameter reduction:         {param_reduction:.1%}")
+        print(f"Original model size:         {original_size:.2f} MB")
+        print(f"Pruned model size:           {pruned_size:.2f} MB")
+        print(f"Size reduction:              {size_reduction:.1%}")
         
         return {
             'original_params': original_params,
             'pruned_params': pruned_params,
             'param_reduction': param_reduction,
+            'original_sparsity': original_sparsity,
+            'pruned_sparsity': pruned_sparsity,
             'original_size_mb': original_size,
             'pruned_size_mb': pruned_size,
             'size_reduction': size_reduction
@@ -1295,10 +1397,17 @@ def main(json_path='options/train_swinir_light.json'):
             print("="*70)
             
             # Handle both model types for parameter counting
-            original_params = pipeline._count_parameters(pipeline.original_model)
-            final_params = pipeline._count_parameters(pruned_model)
+            def count_model_parameters(model):
+                """Count non-zero parameters in a model"""
+                if hasattr(model, 'netG'):
+                    return sum(torch.count_nonzero(p).item() for p in model.netG.parameters() if p.requires_grad)
+                else:
+                    return sum(torch.count_nonzero(p).item() for p in model.parameters() if p.requires_grad)
             
-            total_reduction = (original_params - final_params) / original_params
+            original_params = count_model_parameters(pipeline.original_model)
+            final_params = count_model_parameters(pruned_model)
+            
+            total_reduction = (original_params - final_params) / original_params if original_params > 0 else 0
             
             print(f"Original Parameters:     {original_params:,}")
             print(f"Final Parameters:        {final_params:,}")
@@ -1307,9 +1416,40 @@ def main(json_path='options/train_swinir_light.json'):
             print(f"Average Inference Time:  {avg_inference_time:.4f}s")
             print(f"Evaluation Success:      {'✓ PASS' if evaluation_results['success'] else '✗ FAIL'}")
             
-            # Save final model
+            # Save final model - Fix the model saving issue
             print("\nSaving final pruned model...")
-            model.save_network(pruned_model.netG, 'G', f'pruned_{total_reduction:.1%}', iter_label=f'pruned_{total_reduction:.1%}')
+            try:
+                # Extract the actual network from the model wrapper if needed
+                network_to_save = pruned_model.netG if hasattr(pruned_model, 'netG') else pruned_model
+                
+                # Handle DataParallel models
+                if hasattr(network_to_save, 'module'):
+                    network_to_save = network_to_save.module
+                
+                # Create save path
+                save_name = f'pruned_{total_reduction:.1%}_model.pth'
+                save_path = os.path.join(opt['path']['models'], save_name)
+                
+                # Save the actual network state dict
+                torch.save({
+                    'model_state_dict': network_to_save.state_dict(),
+                    'parameter_reduction': total_reduction,
+                    'final_psnr': avg_psnr,
+                    'pruning_config': opt
+                }, save_path)
+                
+                print(f"✓ Model saved successfully to: {save_path}")
+                
+            except Exception as e:
+                print(f"✗ Failed to save model: {e}")
+                # Try alternative saving method
+                try:
+                    save_name = f'pruned_{total_reduction:.1%}_backup.pth'
+                    save_path = os.path.join(opt['path']['models'], save_name)
+                    torch.save(pruned_model.state_dict(), save_path)
+                    print(f"✓ Backup model saved to: {save_path}")
+                except Exception as e2:
+                    print(f"✗ Backup save also failed: {e2}")
             
             # Save results
             results_file = os.path.join(opt['path']['log'], 'pruning_results.txt')
