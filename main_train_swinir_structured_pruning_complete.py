@@ -656,6 +656,12 @@ class IterativePruningPipeline:
         self.model = model
         self.config = config
         self.mask_manager = ImportanceMaskManager(model)
+        
+        # Initialize masks immediately to ensure they're available
+        mask_init_success = self.mask_manager.initialize_masks()
+        if not mask_init_success:
+            print("WARNING: Mask initialization failed in pipeline!")
+        
         self.pruner = StructuredPruner(model, self.mask_manager)
         self.kd_trainer = None
         
@@ -675,10 +681,14 @@ class IterativePruningPipeline:
         print(f"Schedule type: {schedule_type}")
         print(f"Number of iterations: {num_iterations}")
         
-        # Initialize masks
-        if not self.mask_manager.initialize_masks():
-            print("Warning: No prunable layers found")
-            return {'success': False, 'reason': 'No prunable layers'}
+        # Check if masks are already initialized, if not initialize them
+        if len(self.mask_manager.attention_masks) == 0 and len(self.mask_manager.channel_masks) == 0:
+            print("Initializing masks...")
+            if not self.mask_manager.initialize_masks():
+                print("Warning: No prunable layers found")
+                return {'success': False, 'reason': 'No prunable layers'}
+        else:
+            print(f"Using existing masks: {len(self.mask_manager.attention_masks)} attention + {len(self.mask_manager.channel_masks)} channel layers")
         
         # Initialize KD trainer
         self.kd_trainer = KnowledgeDistillationTrainer(
@@ -788,6 +798,11 @@ class IterativePruningPipeline:
         """Collect REAL importance scores from actual forward passes"""
         print("Collecting importance scores from real activations...")
         self.model.eval()
+        
+        # IMPORTANT: Ensure mask manager has been initialized
+        if not hasattr(self.mask_manager, 'attention_masks') or len(self.mask_manager.attention_masks) == 0:
+            print("Warning: Mask manager not properly initialized, reinitializing...")
+            self.mask_manager.initialize_masks()
         
         # Get device
         device = next(self.model.netG.parameters()).device if hasattr(self.model, 'netG') else next(self.model.parameters()).device
