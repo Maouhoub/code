@@ -39,38 +39,74 @@ class ImportanceMaskManager:
         self.attention_masks = {}
         self.channel_masks = {}
         self.importance_scores = {}
-        self.trainable_attention_masks = nn.ParameterDict()
-        self.trainable_channel_masks = nn.ParameterDict()
         # Get device from model parameters
         self.device = next(model.netG.parameters()).device if hasattr(model, 'netG') else next(model.parameters()).device
         
     def initialize_masks(self):
-        """Initialize trainable importance masks for attention heads and MLP channels"""
-        print("Initializing trainable importance masks...")
+        """Initialize importance masks for attention heads and MLP channels"""
+        print("Initializing importance masks...")
+        print("Analyzing SwinIR model structure...")
+        
         attention_count = 0
         channel_count = 0
         
         # Get the actual network (netG) for analysis
         network = self.model.netG if hasattr(self.model, 'netG') else self.model
         
+        # Debug: Print all module names to understand structure
+        print("Model structure analysis:")
         for name, module in network.named_modules():
             module_type = type(module).__name__
-            if hasattr(module, 'num_heads') or 'attention' in module_type.lower():
-                num_heads = getattr(module, 'num_heads', 8)
-                mask = nn.Parameter(torch.ones(num_heads, device=self.device))
-                self.trainable_attention_masks[name] = mask
-                self.attention_masks[name] = mask.data
-                attention_count += 1
+            if any(keyword in name.lower() for keyword in ['attention', 'attn', 'mlp', 'ffn', 'transformer', 'block', 'layer']):
+                print(f"  {name}: {module_type}")
                 
-            elif isinstance(module, nn.Linear) and ('mlp' in name.lower() or 'ffn' in name.lower()):
-                out_features = module.out_features
-                mask = nn.Parameter(torch.ones(out_features, device=self.device))
-                self.trainable_channel_masks[name] = mask
-                self.channel_masks[name] = mask.data
-                channel_count += 1
+                # Look for attention-like modules
+                if hasattr(module, 'num_heads') or 'attention' in module_type.lower():
+                    num_heads = getattr(module, 'num_heads', 8)
+                    mask = torch.ones(num_heads, device=self.device)
+                    self.attention_masks[name] = mask
+                    print(f"  ✓ Added attention head mask for {name}: {num_heads} heads")
+                    attention_count += 1
+                
+                # Look for MLP/Linear modules
+                elif isinstance(module, nn.Linear) and ('mlp' in name.lower() or 'ffn' in name.lower()):
+                    out_features = module.out_features
+                    mask = torch.ones(out_features, device=self.device)
+                    self.channel_masks[name] = mask
+                    print(f"  ✓ Added MLP channel mask for {name}: {out_features} channels")
+                    channel_count += 1
         
-        print(f"Initialized {attention_count} trainable attention masks and {channel_count} trainable channel masks")
-        return len(self.trainable_attention_masks) + len(self.trainable_channel_masks) > 0
+        # If no attention modules found, try broader search
+        if attention_count == 0:
+            print("No standard attention modules found. Trying broader search...")
+            for name, module in network.named_modules():
+                if hasattr(module, 'qkv') or hasattr(module, 'q') or hasattr(module, 'k') or hasattr(module, 'v'):
+                    # This looks like an attention module
+                    num_heads = 8  # Default for SwinIR
+                    if hasattr(module, 'num_heads'):
+                        num_heads = module.num_heads
+                    elif hasattr(module, 'head_dim') and hasattr(module, 'dim'):
+                        num_heads = module.dim // module.head_dim
+                    
+                    mask = torch.ones(num_heads, device=self.device)
+                    self.attention_masks[name] = mask
+                    print(f"  ✓ Found attention-like module {name}: {num_heads} heads")
+                    attention_count += 1
+        
+        # If still no channel masks, add some Linear layers
+        if channel_count == 0:
+            print("Adding Linear layers as channel masks...")
+            for name, module in network.named_modules():
+                if isinstance(module, nn.Linear) and module.out_features > 64:  # Only significant layers
+                    mask = torch.ones(module.out_features, device=self.device)
+                    self.channel_masks[name] = mask
+                    print(f"  ✓ Added Linear layer mask for {name}: {module.out_features} channels")
+                    channel_count += 1
+                    if channel_count >= 20:  # Limit to avoid too many
+                        break
+        
+        print(f"Initialized {attention_count} attention masks and {channel_count} channel masks")
+        return len(self.attention_masks) + len(self.channel_masks) > 0
 
     def compute_attention_importance(self, attention_weights):
         """Compute importance scores for attention heads"""
@@ -704,30 +740,34 @@ class IterativePruningPipeline:
         self.model.train()
     
     def _fine_tune_with_kd(self, train_loader, epochs):
-        """Fine-tune model with knowledge distillation and L1 mask regularization"""
-        print(f"Fine-tuning for {epochs} epochs with KD and L1 mask regularization...")
-        mask_params = list(self.mask_manager.trainable_attention_masks.parameters()) + list(self.mask_manager.trainable_channel_masks.parameters())
+        """Fine-tune model with knowledge distillation"""
+        print(f"Fine-tuning for {epochs} epochs...")
+        
+        # Get the correct optimizer
         if hasattr(self.model, 'G_optimizer'):
             optimizer = self.model.G_optimizer
         elif hasattr(self.model, 'optimizers') and 'G' in self.model.optimizers:
             optimizer = self.model.optimizers['G']
         else:
             print("ERROR: No optimizer found! Creating a new one...")
-            optimizer = torch.optim.Adam(list(self.model.netG.parameters()) + mask_params, lr=1e-4)
+            optimizer = torch.optim.Adam(self.model.netG.parameters(), lr=1e-4)
         
+        # Check and adjust learning rate
         for param_group in optimizer.param_groups:
             if param_group['lr'] < 1e-6:
                 print(f"WARNING: Learning rate too small: {param_group['lr']}")
                 param_group['lr'] = 1e-4
                 print(f"Adjusted learning rate to: {param_group['lr']}")
         
-        l1_lambda = 1e-4  # L1 regularization strength
         for epoch in range(epochs):
             epoch_losses = []
             num_batches = 0
             
             for batch in train_loader:
+                # Get device from model
                 device = next(self.model.netG.parameters()).device
+                
+                # Ensure batch data is on correct device
                 L_input = batch['L'].to(device)
                 H_target = batch['H'].to(device)
                 
@@ -746,18 +786,14 @@ class IterativePruningPipeline:
                 # Compute losses with proper scaling
                 mse_loss = F.mse_loss(student_output, H_target)
                 teacher_student_loss = F.mse_loss(student_output, teacher_output)
-                l1_loss = 0.0
-                for mask in self.mask_manager.trainable_attention_masks.values():
-                    l1_loss += torch.norm(mask, 1)
-                for mask in self.mask_manager.trainable_channel_masks.values():
-                    l1_loss += torch.norm(mask, 1)
-                total_loss = 0.3 * teacher_student_loss + 0.7 * mse_loss + l1_lambda * l1_loss
+                
+                # Combined loss - emphasize ground truth more
+                total_loss = 0.3 * teacher_student_loss + 0.7 * mse_loss
                 
                 # Debug loss values on first batch
                 if epoch == 0 and num_batches == 0:
                     print(f"  Debug - MSE Loss: {mse_loss.item():.6f}")
                     print(f"  Debug - KD Loss: {teacher_student_loss.item():.6f}")
-                    print(f"  Debug - L1 Loss: {l1_loss.item():.6f}")
                     print(f"  Debug - Total Loss: {total_loss.item():.6f}")
                     print(f"  Debug - LR: {optimizer.param_groups[0]['lr']}")
                 
