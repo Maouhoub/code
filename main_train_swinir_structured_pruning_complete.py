@@ -43,7 +43,7 @@ class ImportanceMaskManager:
         self.device = next(model.netG.parameters()).device if hasattr(model, 'netG') else next(model.parameters()).device
         
     def initialize_masks(self):
-        """Initialize importance masks for attention heads and MLP channels"""
+        """Initialize importance masks for attention heads and MLP channels based on SwinIR architecture"""
         print("Initializing importance masks...")
         print("Analyzing SwinIR model structure...")
         
@@ -53,59 +53,125 @@ class ImportanceMaskManager:
         # Get the actual network (netG) for analysis
         network = self.model.netG if hasattr(self.model, 'netG') else self.model
         
-        # Debug: Print all module names to understand structure
+        # SwinIR-specific layer detection patterns
+        swinir_patterns = {
+            'attention': ['layers', 'blocks', 'attn'],
+            'mlp': ['layers', 'blocks', 'mlp']
+        }
+        
         print("Model structure analysis:")
         for name, module in network.named_modules():
             module_type = type(module).__name__
-            if any(keyword in name.lower() for keyword in ['attention', 'attn', 'mlp', 'ffn', 'transformer', 'block', 'layer']):
-                print(f"  {name}: {module_type}")
-                
-                # Look for attention-like modules
-                if hasattr(module, 'num_heads') or 'attention' in module_type.lower():
-                    num_heads = getattr(module, 'num_heads', 8)
+            
+            # SwinIR Attention Detection
+            if self._is_swinir_attention(name, module):
+                num_heads = self._get_attention_heads(module)
+                if num_heads > 0:
                     mask = torch.ones(num_heads, device=self.device)
                     self.attention_masks[name] = mask
-                    print(f"  ✓ Added attention head mask for {name}: {num_heads} heads")
+                    print(f"  ✓ SwinIR Attention: {name} ({module_type}) - {num_heads} heads")
                     attention_count += 1
-                
-                # Look for MLP/Linear modules
-                elif isinstance(module, nn.Linear) and ('mlp' in name.lower() or 'ffn' in name.lower()):
-                    out_features = module.out_features
-                    mask = torch.ones(out_features, device=self.device)
+            
+            # SwinIR MLP Detection  
+            elif self._is_swinir_mlp(name, module):
+                channels = self._get_mlp_channels(module)
+                if channels > 0:
+                    mask = torch.ones(channels, device=self.device)
                     self.channel_masks[name] = mask
-                    print(f"  ✓ Added MLP channel mask for {name}: {out_features} channels")
+                    print(f"  ✓ SwinIR MLP: {name} ({module_type}) - {channels} channels")
                     channel_count += 1
         
-        # If no attention modules found, try broader search
-        if attention_count == 0:
-            print("No standard attention modules found. Trying broader search...")
-            for name, module in network.named_modules():
-                if hasattr(module, 'qkv') or hasattr(module, 'q') or hasattr(module, 'k') or hasattr(module, 'v'):
-                    # This looks like an attention module
-                    num_heads = 8  # Default for SwinIR
-                    if hasattr(module, 'num_heads'):
-                        num_heads = module.num_heads
-                    elif hasattr(module, 'head_dim') and hasattr(module, 'dim'):
-                        num_heads = module.dim // module.head_dim
-                    
+        print(f"\nSwinIR Architecture Analysis Complete:")
+        print(f"  Found {attention_count} attention layers")
+        print(f"  Found {channel_count} MLP layers")
+        
+        if attention_count == 0 and channel_count == 0:
+            print("WARNING: No SwinIR layers detected! Using fallback detection...")
+            return self._fallback_detection(network)
+        
+        return len(self.attention_masks) + len(self.channel_masks) > 0
+    
+    def _is_swinir_attention(self, name, module):
+        """Check if module is a SwinIR attention layer"""
+        name_lower = name.lower()
+        module_type = type(module).__name__
+        
+        # SwinIR attention patterns
+        swinir_attention_indicators = [
+            'layers' in name_lower and 'attn' in name_lower,
+            'blocks' in name_lower and 'attn' in name_lower,
+            hasattr(module, 'qkv') and hasattr(module, 'num_heads'),
+            'WindowAttention' in module_type,
+            'SwinTransformerBlock' in module_type and 'attn' in name_lower
+        ]
+        
+        return any(swinir_attention_indicators)
+    
+    def _is_swinir_mlp(self, name, module):
+        """Check if module is a SwinIR MLP layer"""
+        name_lower = name.lower()
+        module_type = type(module).__name__
+        
+        # SwinIR MLP patterns
+        swinir_mlp_indicators = [
+            'layers' in name_lower and 'mlp' in name_lower and isinstance(module, torch.nn.Linear),
+            'blocks' in name_lower and 'mlp' in name_lower and isinstance(module, torch.nn.Linear),
+            'mlp.fc1' in name_lower or 'mlp.fc2' in name_lower,
+            hasattr(module, 'in_features') and hasattr(module, 'out_features') and 'mlp' in name_lower
+        ]
+        
+        return any(swinir_mlp_indicators)
+    
+    def _get_attention_heads(self, module):
+        """Extract number of attention heads from SwinIR attention module"""
+        if hasattr(module, 'num_heads'):
+            return module.num_heads
+        elif hasattr(module, 'head_dim') and hasattr(module, 'dim'):
+            return module.dim // module.head_dim
+        elif hasattr(module, 'qkv') and hasattr(module.qkv, 'out_features'):
+            # For SwinIR, QKV projection has 3 * embed_dim output features
+            # num_heads = embed_dim // head_dim, typically head_dim = 32
+            embed_dim = module.qkv.out_features // 3
+            head_dim = getattr(module, 'head_dim', 32)  # SwinIR default
+            return embed_dim // head_dim
+        else:
+            return 6  # SwinIR-Light default
+    
+    def _get_mlp_channels(self, module):
+        """Extract number of channels from SwinIR MLP module"""
+        if hasattr(module, 'out_features'):
+            return module.out_features
+        elif hasattr(module, 'hidden_features'):
+            return module.hidden_features
+        else:
+            return 0
+    
+    def _fallback_detection(self, network):
+        """Fallback detection for non-standard SwinIR implementations"""
+        print("Running fallback detection...")
+        attention_count = 0
+        channel_count = 0
+        
+        for name, module in network.named_modules():
+            # Broader attention detection
+            if hasattr(module, 'qkv') or 'attention' in type(module).__name__.lower():
+                num_heads = self._get_attention_heads(module)
+                if num_heads > 0:
                     mask = torch.ones(num_heads, device=self.device)
                     self.attention_masks[name] = mask
-                    print(f"  ✓ Found attention-like module {name}: {num_heads} heads")
+                    print(f"  ✓ Fallback Attention: {name} - {num_heads} heads")
                     attention_count += 1
+            
+            # Broader MLP detection
+            elif isinstance(module, torch.nn.Linear) and module.out_features > 64:
+                mask = torch.ones(module.out_features, device=self.device)
+                self.channel_masks[name] = mask
+                print(f"  ✓ Fallback MLP: {name} - {module.out_features} channels")
+                channel_count += 1
+                if channel_count >= 15:  # Reasonable limit
+                    break
         
-        # If still no channel masks, add some Linear layers
-        if channel_count == 0:
-            print("Adding Linear layers as channel masks...")
-            for name, module in network.named_modules():
-                if isinstance(module, nn.Linear) and module.out_features > 64:  # Only significant layers
-                    mask = torch.ones(module.out_features, device=self.device)
-                    self.channel_masks[name] = mask
-                    print(f"  ✓ Added Linear layer mask for {name}: {module.out_features} channels")
-                    channel_count += 1
-                    if channel_count >= 20:  # Limit to avoid too many
-                        break
-        
-        print(f"Initialized {attention_count} attention masks and {channel_count} channel masks")
+        print(f"Fallback detection found {attention_count} attention + {channel_count} MLP layers")
         return len(self.attention_masks) + len(self.channel_masks) > 0
 
     def compute_attention_importance(self, attention_weights):
