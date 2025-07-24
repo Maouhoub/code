@@ -76,37 +76,72 @@ class ImportanceMaskManager:
                     print(f"  ✓ Added MLP channel mask for {name}: {out_features} channels")
                     channel_count += 1
         
-        # If no attention modules found, try broader search
+        # If no attention modules found, try broader search with dynamic head detection
         if attention_count == 0:
             print("No standard attention modules found. Trying broader search...")
             for name, module in network.named_modules():
                 if hasattr(module, 'qkv') or hasattr(module, 'q') or hasattr(module, 'k') or hasattr(module, 'v'):
-                    # This looks like an attention module
-                    num_heads = 8  # Default for SwinIR
-                    if hasattr(module, 'num_heads'):
-                        num_heads = module.num_heads
-                    elif hasattr(module, 'head_dim') and hasattr(module, 'dim'):
-                        num_heads = module.dim // module.head_dim
+                    # Dynamically determine number of heads
+                    num_heads = self._detect_num_heads(module)
                     
                     mask = torch.ones(num_heads, device=self.device)
                     self.attention_masks[name] = mask
                     print(f"  ✓ Found attention-like module {name}: {num_heads} heads")
                     attention_count += 1
         
-        # If still no channel masks, add some Linear layers
+        # If still no channel masks, add Linear layers with size filtering
         if channel_count == 0:
-            print("Adding Linear layers as channel masks...")
+            print("Adding significant Linear layers as channel masks...")
+            linear_layers = []
             for name, module in network.named_modules():
-                if isinstance(module, nn.Linear) and module.out_features > 64:  # Only significant layers
-                    mask = torch.ones(module.out_features, device=self.device)
+                if isinstance(module, nn.Linear):
+                    linear_layers.append((name, module.out_features))
+            
+            # Sort by size and take the largest ones
+            linear_layers.sort(key=lambda x: x[1], reverse=True)
+            
+            for name, out_features in linear_layers[:15]:  # Limit to top 15 layers
+                if out_features >= 32:  # Minimum threshold
+                    mask = torch.ones(out_features, device=self.device)
                     self.channel_masks[name] = mask
-                    print(f"  ✓ Added Linear layer mask for {name}: {module.out_features} channels")
+                    print(f"  ✓ Added Linear layer mask for {name}: {out_features} channels")
                     channel_count += 1
-                    if channel_count >= 20:  # Limit to avoid too many
-                        break
         
         print(f"Initialized {attention_count} attention masks and {channel_count} channel masks")
         return len(self.attention_masks) + len(self.channel_masks) > 0
+    
+    def _detect_num_heads(self, module):
+        """Dynamically detect number of attention heads"""
+        # Method 1: Direct attribute
+        if hasattr(module, 'num_heads'):
+            return module.num_heads
+        
+        # Method 2: Calculate from dimensions
+        if hasattr(module, 'head_dim') and hasattr(module, 'dim'):
+            return module.dim // module.head_dim
+        
+        # Method 3: Infer from QKV weight dimensions
+        if hasattr(module, 'qkv') and hasattr(module.qkv, 'weight'):
+            qkv_dim = module.qkv.weight.shape[0]
+            # Common head dimensions: 32, 64, 96, 128
+            for head_dim in [32, 64, 96, 128]:
+                if qkv_dim % (3 * head_dim) == 0:
+                    num_heads = qkv_dim // (3 * head_dim)
+                    if 1 <= num_heads <= 32:  # Reasonable range
+                        return num_heads
+        
+        # Method 4: Check individual Q, K, V
+        if hasattr(module, 'q') and hasattr(module.q, 'weight'):
+            q_dim = module.q.weight.shape[0]
+            for head_dim in [32, 64, 96, 128]:
+                if q_dim % head_dim == 0:
+                    num_heads = q_dim // head_dim
+                    if 1 <= num_heads <= 32:
+                        return num_heads
+        
+        # Default fallbacks based on common SwinIR configurations
+        print(f"  Warning: Could not detect heads for {type(module).__name__}, using default")
+        return 6  # Conservative default
 
     def compute_attention_importance(self, attention_weights):
         """Compute importance scores for attention heads"""
@@ -265,41 +300,76 @@ class StructuredPruner:
             'estimated_reduction': 0.0
         }
         
+        if not self.mask_manager.importance_scores:
+            print("Warning: No importance scores available, creating conservative plan")
+            return plan
+        
         total_params = sum(p.numel() for p in self.model.parameters())
         params_to_remove = 0
         
-        # Plan attention head pruning
+        # Plan attention head pruning with safety checks
         for name, mask in self.mask_manager.attention_masks.items():
             if name in self.mask_manager.importance_scores:
-                importance = self.mask_manager.importance_scores[name]
-                num_heads = len(importance)
-                
-                # Determine heads to prune based on importance threshold
-                normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
-                heads_to_prune = (normalized_importance < importance_threshold).sum().item()
-                heads_to_prune = min(heads_to_prune, num_heads - 1)  # Keep at least one head
-                
-                if heads_to_prune > 0:
-                    plan['attention_heads'][name] = heads_to_prune
-                    # Estimate parameter reduction (rough approximation)
-                    params_to_remove += heads_to_prune * (64 * 64)  # Approximate head parameters
+                try:
+                    importance = self.mask_manager.importance_scores[name]
+                    num_heads = len(importance) if len(importance.shape) == 1 else importance.shape[1]
+                    
+                    if num_heads <= 1:  # Skip if only one head
+                        continue
+                    
+                    # Determine heads to prune based on importance threshold
+                    if importance.numel() > 1:
+                        if len(importance.shape) > 1:
+                            importance = importance.mean(dim=[0, 2, 3]) if importance.dim() == 4 else importance.flatten()[:num_heads]
+                        
+                        normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
+                        heads_to_prune = (normalized_importance < importance_threshold).sum().item()
+                        heads_to_prune = min(heads_to_prune, num_heads - 1)  # Keep at least one head
+                        
+                        if heads_to_prune > 0:
+                            plan['attention_heads'][name] = heads_to_prune
+                            # Better parameter estimation
+                            if hasattr(self, '_estimate_head_params'):
+                                params_to_remove += heads_to_prune * self._estimate_head_params(name)
+                            else:
+                                params_to_remove += heads_to_prune * 2048  # Conservative estimate
+                except Exception as e:
+                    print(f"Warning: Failed to plan pruning for attention layer {name}: {e}")
+                    continue
         
-        # Plan MLP channel pruning
+        # Plan MLP channel pruning with safety checks
         for name, mask in self.mask_manager.channel_masks.items():
             if name in self.mask_manager.importance_scores:
-                importance = self.mask_manager.importance_scores[name]
-                num_channels = len(importance)
-                
-                # Determine channels to prune
-                normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
-                channels_to_prune = int(num_channels * target_ratio * normalized_importance.mean().item())
-                channels_to_prune = min(channels_to_prune, num_channels - 16)  # Keep minimum channels
-                
-                if channels_to_prune > 0:
-                    plan['mlp_channels'][name] = channels_to_prune
-                    params_to_remove += channels_to_prune * 256  # Approximate channel parameters
+                try:
+                    importance = self.mask_manager.importance_scores[name]
+                    num_channels = len(importance) if len(importance.shape) == 1 else importance.shape[-1]
+                    
+                    if num_channels <= 32:  # Skip small layers
+                        continue
+                    
+                    # Determine channels to prune
+                    if importance.numel() > 1:
+                        if len(importance.shape) > 1:
+                            importance = importance.mean(dim=[0, 1]) if importance.dim() == 3 else importance.flatten()[:num_channels]
+                        
+                        normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
+                        channels_to_prune = int(num_channels * target_ratio * normalized_importance.mean().item())
+                        channels_to_prune = min(channels_to_prune, num_channels - 32)  # Keep minimum channels
+                        
+                        if channels_to_prune > 0:
+                            plan['mlp_channels'][name] = channels_to_prune
+                            # Better parameter estimation
+                            if hasattr(self, '_estimate_channel_params'):
+                                params_to_remove += channels_to_prune * self._estimate_channel_params(name)
+                            else:
+                                params_to_remove += channels_to_prune * 512  # Conservative estimate
+                except Exception as e:
+                    print(f"Warning: Failed to plan pruning for MLP layer {name}: {e}")
+                    continue
         
-        plan['estimated_reduction'] = params_to_remove / total_params
+        plan['estimated_reduction'] = params_to_remove / total_params if total_params > 0 else 0.0
+        
+        print(f"Pruning plan created: {len(plan['attention_heads'])} attention layers, {len(plan['mlp_channels'])} MLP layers")
         return plan
     
     def apply_pruning_plan(self, pruning_plan):
@@ -708,36 +778,138 @@ class IterativePruningPipeline:
             return sum(p.numel() for p in network.parameters() if p.requires_grad)
     
     def _collect_importance_scores(self, train_loader):
-        """Collect importance scores from a few training batches"""
+        """Collect REAL importance scores from model activations"""
         self.model.eval()
-        activations_dict = {}
         
-        # Get device
-        device = next(self.model.netG.parameters()).device if hasattr(self.model, 'netG') else next(self.model.parameters()).device
+        # Install forward hooks to capture real activations
+        activation_hooks = {}
+        activations_storage = {}
         
-        with torch.no_grad():
-            for i, batch in enumerate(train_loader):
-                if i >= 3:  # Only use a few batches
-                    break
+        def create_activation_hook(name, storage_dict):
+            def hook(module, input, output):
+                if isinstance(output, tuple):
+                    output = output[0]  # Take first element if tuple
+                
+                # Store activation for importance calculation
+                if name not in storage_dict:
+                    storage_dict[name] = []
+                storage_dict[name].append(output.detach().clone())
+            return hook
+        
+        # Register hooks for attention and MLP layers
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        hook_handles = []
+        
+        try:
+            # Register hooks for layers we have masks for
+            for layer_name in list(self.mask_manager.attention_masks.keys()) + list(self.mask_manager.channel_masks.keys()):
+                try:
+                    layer = network
+                    for part in layer_name.split('.'):
+                        layer = getattr(layer, part)
                     
-                # Forward pass to collect activations
-                self.model.feed_data(batch)
-                _ = self.model.netG(batch['L'].to(device))
-                
-                # Generate synthetic importance scores based on actual masks
-                for name in self.mask_manager.attention_masks.keys():
-                    if name not in activations_dict:
-                        num_heads = len(self.mask_manager.attention_masks[name])
-                        # Create random but consistent importance scores
-                        activations_dict[name] = torch.randn(4, num_heads, 64, 64, device=device)
-                
-                for name in self.mask_manager.channel_masks.keys():
-                    if name not in activations_dict:
-                        num_channels = len(self.mask_manager.channel_masks[name])
-                        activations_dict[name] = torch.randn(4, 64, num_channels, device=device)
+                    hook = layer.register_forward_hook(create_activation_hook(layer_name, activations_storage))
+                    hook_handles.append(hook)
+                except AttributeError:
+                    continue
+            
+            print(f"Registered {len(hook_handles)} activation hooks for importance calculation")
+            
+            # Collect activations from forward passes
+            with torch.no_grad():
+                for i, batch in enumerate(train_loader):
+                    if i >= 5:  # Use more batches for better importance estimation
+                        break
+                        
+                    self.model.feed_data(batch)
+                    _ = self.model.netG(batch['L'])
+            
+            # Process collected activations into importance scores
+            processed_activations = {}
+            
+            for layer_name, activation_list in activations_storage.items():
+                if activation_list:
+                    # Concatenate all activations for this layer
+                    all_activations = torch.cat(activation_list, dim=0)
+                    
+                    if layer_name in self.mask_manager.attention_masks:
+                        # For attention layers: create synthetic attention-like importance
+                        num_heads = len(self.mask_manager.attention_masks[layer_name])
+                        if len(all_activations.shape) >= 3:
+                            # Use channel-wise variance as head importance proxy
+                            importance = torch.var(all_activations, dim=[0, -1])
+                            if len(importance) >= num_heads:
+                                importance = importance[:num_heads]
+                            else:
+                                # Pad if needed
+                                padding = torch.ones(num_heads - len(importance), device=importance.device) * importance.mean()
+                                importance = torch.cat([importance, padding])
+                            
+                            processed_activations[layer_name] = importance.view(1, num_heads, 1, 1).expand(1, num_heads, 64, 64)
+                    
+                    elif layer_name in self.mask_manager.channel_masks:
+                        # For MLP layers: use activation magnitude as channel importance
+                        if len(all_activations.shape) >= 2:
+                            # Average over batch and spatial dimensions, keep channel dimension
+                            dims_to_avg = list(range(len(all_activations.shape)))
+                            dims_to_avg.remove(-1)  # Keep last dimension (channels)
+                            importance = torch.mean(torch.abs(all_activations), dim=dims_to_avg)
+                            
+                            num_channels = len(self.mask_manager.channel_masks[layer_name])
+                            if len(importance) >= num_channels:
+                                importance = importance[:num_channels]
+                            else:
+                                # Pad if needed
+                                padding = torch.ones(num_channels - len(importance), device=importance.device) * importance.mean()
+                                importance = torch.cat([importance, padding])
+                            
+                            processed_activations[layer_name] = importance.view(1, 1, num_channels).expand(1, 64, num_channels)
         
-        self.mask_manager.update_importance_scores(activations_dict)
+        finally:
+            # Remove all hooks
+            for hook in hook_handles:
+                hook.remove()
+        
+        # Fallback: if no real activations collected, use gradient-based importance
+        if not processed_activations:
+            print("Warning: No activations collected, using gradient-based importance estimation")
+            processed_activations = self._gradient_based_importance(train_loader)
+        
+        self.mask_manager.update_importance_scores(processed_activations)
         self.model.train()
+    
+    def _gradient_based_importance(self, train_loader):
+        """Fallback: Use gradient magnitudes as importance proxy"""
+        self.model.train()
+        gradient_storage = {}
+        
+        # Run a few training steps and collect gradients
+        for i, batch in enumerate(train_loader):
+            if i >= 3:
+                break
+                
+            self.model.feed_data(batch)
+            self.model.optimize_parameters(current_step=i)
+            
+            # Collect gradient magnitudes
+            network = self.model.netG if hasattr(self.model, 'netG') else self.model
+            for name, param in network.named_parameters():
+                if param.grad is not None:
+                    grad_magnitude = torch.abs(param.grad).mean()
+                    
+                    # Map parameter names to layer names for our masks
+                    for mask_name in list(self.mask_manager.attention_masks.keys()) + list(self.mask_manager.channel_masks.keys()):
+                        if any(part in name for part in mask_name.split('.')):
+                            if mask_name not in gradient_storage:
+                                if mask_name in self.mask_manager.attention_masks:
+                                    num_heads = len(self.mask_manager.attention_masks[mask_name])
+                                    gradient_storage[mask_name] = torch.ones(1, num_heads, 64, 64, device=param.device) * grad_magnitude
+                                else:
+                                    num_channels = len(self.mask_manager.channel_masks[mask_name])
+                                    gradient_storage[mask_name] = torch.ones(1, 64, num_channels, device=param.device) * grad_magnitude
+                            break
+        
+        return gradient_storage
     
     def _fine_tune_with_kd(self, train_loader, epochs):
         """Fine-tune model with knowledge distillation"""
@@ -935,11 +1107,33 @@ class ComprehensiveEvaluator:
         return results
     
     def _evaluate_performance(self, test_loader):
-        """Evaluate inference performance"""
+        """Evaluate inference performance and memory usage"""
         if test_loader is None:
             return {'speedup': 1.0, 'memory_reduction': 0.0}
         
         print("Measuring inference performance...")
+        
+        # Memory measurement function
+        def measure_memory_usage(model, batch):
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+                initial_memory = torch.cuda.memory_allocated()
+            else:
+                initial_memory = 0
+            
+            model.feed_data(batch)
+            with torch.no_grad():
+                _ = model.netG(batch['L'])
+            
+            if torch.cuda.is_available():
+                peak_memory = torch.cuda.max_memory_allocated()
+                memory_used = peak_memory - initial_memory
+            else:
+                memory_used = 0
+                
+            return memory_used
         
         # Warmup
         for i, batch in enumerate(test_loader):
@@ -951,41 +1145,57 @@ class ComprehensiveEvaluator:
                 self.pruned_model.feed_data(batch)
                 _ = self.pruned_model.netG(batch['L'])
         
-        # Timing
+        # Performance measurements
         original_times = []
         pruned_times = []
+        original_memory = []
+        pruned_memory = []
         
         for i, batch in enumerate(test_loader):
             if i >= self.config['timing_runs']:
                 break
                 
-            # Original model timing
+            # Original model timing and memory
             self.original_model.feed_data(batch)
             start_time = time.time()
+            memory_used = measure_memory_usage(self.original_model, batch)
             with torch.no_grad():
                 _ = self.original_model.netG(batch['L'])
             original_times.append(time.time() - start_time)
+            original_memory.append(memory_used)
             
-            # Pruned model timing
+            # Pruned model timing and memory
             self.pruned_model.feed_data(batch)
             start_time = time.time()
+            memory_used = measure_memory_usage(self.pruned_model, batch)
             with torch.no_grad():
                 _ = self.pruned_model.netG(batch['L'])
             pruned_times.append(time.time() - start_time)
+            pruned_memory.append(memory_used)
         
+        # Calculate metrics
         avg_original_time = np.mean(original_times) * 1000  # Convert to ms
         avg_pruned_time = np.mean(pruned_times) * 1000
         speedup = avg_original_time / avg_pruned_time if avg_pruned_time > 0 else 1.0
         
+        avg_original_memory = np.mean(original_memory) / (1024 * 1024)  # Convert to MB
+        avg_pruned_memory = np.mean(pruned_memory) / (1024 * 1024)
+        memory_reduction = (avg_original_memory - avg_pruned_memory) / avg_original_memory if avg_original_memory > 0 else 0.0
+        
         print(f"  Original model: {avg_original_time:.2f} ± {np.std(original_times)*1000:.2f} ms")
         print(f"  Pruned model:   {avg_pruned_time:.2f} ± {np.std(pruned_times)*1000:.2f} ms")
         print(f"  Speedup:        {speedup:.2f}x")
+        print(f"  Original memory: {avg_original_memory:.2f} MB")
+        print(f"  Pruned memory:   {avg_pruned_memory:.2f} MB")
+        print(f"  Memory reduction: {memory_reduction:.1%}")
         
         return {
             'original_inference_time': avg_original_time,
             'pruned_inference_time': avg_pruned_time,
             'speedup': speedup,
-            'memory_reduction': 0.0  # Simplified for this implementation
+            'original_memory_mb': avg_original_memory,
+            'pruned_memory_mb': avg_pruned_memory,
+            'memory_reduction': memory_reduction
         }
     
     def _analyze_compression(self):
@@ -1227,17 +1437,203 @@ def main(json_path='options/train_swinir_light.json'):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-    '''
     # ----------------------------------------
-    # Step--2 (create dataloader)
+    # Step--1 (create dataloader)
     # ----------------------------------------
-    '''
+    train_loader = None
+    test_loader = None
+    
+    for phase, dataset_opt in opt['datasets'].items():
+        if phase == 'train':
+            train_set = define_Dataset(dataset_opt)
+            train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
+            print('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
+            
+            if opt['dist']:
+                train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'])
+                train_loader = DataLoader(train_set,
+                                        batch_size=dataset_opt['dataloader_batch_size']//opt['num_gpu'],
+                                        shuffle=False,
+                                        num_workers=dataset_opt['dataloader_num_workers']//opt['num_gpu'],
+                                        drop_last=True,
+                                        pin_memory=True,
+                                        sampler=train_sampler)
+            else:
+                train_loader = DataLoader(train_set,
+                                        batch_size=dataset_opt['dataloader_batch_size'],
+                                        shuffle=dataset_opt['dataloader_shuffle'],
+                                        num_workers=dataset_opt['dataloader_num_workers'],
+                                        drop_last=True,
+                                        pin_memory=True)
+                                        
+        elif phase == 'test':
+            test_set = define_Dataset(dataset_opt)
+            test_loader = DataLoader(test_set, batch_size=1,
+                                   shuffle=False, num_workers=1,
+                                   drop_last=False, pin_memory=True)
+            print('Number of test images: {:,d}'.format(len(test_set)))
 
     # ----------------------------------------
-    # 1) create_dataset
-    # 2) create_dataloader for train and test
+    # Step--2 (create model)
     # ----------------------------------------
-    for phase, dataset_opt in opt['datasets'].items():
+    model = define_Model(opt)
+    model.init_train()
+    
+    print("Model created successfully!")
+    original_params = sum(p.numel() for p in model.netG.parameters())
+    print(f"Original model has {original_params:,} parameters")
+
+    # ----------------------------------------
+    # Step--3 (Structured Pruning Pipeline) 
+    # ----------------------------------------
+    if opt['rank'] == 0:
+        print("\n" + "="*70)
+        print("STARTING STRUCTURED PRUNING PIPELINE")
+        print("="*70)
+        
+        # Configure pruning parameters
+        pruning_config = {
+            'target_ratio': opt.get('target_ratio', 0.4),
+            'num_iterations': opt.get('num_iterations', 3),
+            'fine_tune_epochs': opt.get('fine_tune_epochs', 2),
+            'schedule_type': opt.get('schedule_type', 'linear')
+        }
+        
+        print(f"Pruning configuration: {pruning_config}")
+        
+        # Initialize pruning pipeline
+        try:
+            pipeline = IterativePruningPipeline(model, pruning_config)
+            
+            # Run the complete pruning pipeline
+            pipeline_results = pipeline.run_complete_pipeline(train_loader, test_loader)
+            
+            if pipeline_results['success']:
+                print("✅ Pruning pipeline completed successfully!")
+                
+                # Get final pruned model
+                pruned_model = pipeline_results['final_model']
+                final_params = sum(torch.count_nonzero(p).item() for p in pruned_model.netG.parameters())
+                total_reduction = (original_params - final_params) / original_params
+                
+                print(f"Final results:")
+                print(f"  Original parameters: {original_params:,}")
+                print(f"  Final parameters: {final_params:,}")
+                print(f"  Total reduction: {total_reduction:.1%}")
+                print(f"  Final PSNR: {pipeline_results['final_psnr']:.2f}dB")
+                
+                # ----------------------------------------
+                # Step--4 (Comprehensive Evaluation)
+                # ----------------------------------------
+                print("\n" + "="*60)
+                print("COMPREHENSIVE EVALUATION")
+                print("="*60)
+                
+                evaluator = ComprehensiveEvaluator(
+                    original_model=copy.deepcopy(model),
+                    pruned_model=pruned_model,
+                    config={
+                        'target_reduction': pruning_config['target_ratio'],
+                        'max_psnr_drop': 1.0,
+                        'min_speedup': 1.1,
+                        'min_memory_reduction': 0.1
+                    }
+                )
+                
+                evaluation_results = evaluator.run_comprehensive_evaluation(test_loader)
+                
+                # ----------------------------------------
+                # Step--5 (Save Results)
+                # ----------------------------------------
+                try:
+                    # Save the pruned model
+                    save_path = os.path.join(opt['path']['models'], f'pruned_model_step_{current_step}.pth')
+                    torch.save({
+                        'model_state_dict': pruned_model.netG.state_dict(),
+                        'pruning_config': pruning_config,
+                        'pipeline_results': pipeline_results,
+                        'evaluation_results': evaluation_results,
+                        'original_params': original_params,
+                        'final_params': final_params,
+                        'reduction': total_reduction
+                    }, save_path)
+                    print(f"✅ Pruned model saved to: {save_path}")
+                except Exception as e:
+                    print(f"⚠️ Failed to save pruned model: {e}")
+                    # Try backup location
+                    try:
+                        backup_path = f'pruned_model_backup_{current_step}.pth'
+                        torch.save(pruned_model.netG.state_dict(), backup_path)
+                        print(f"✅ Backup model saved to: {backup_path}")
+                    except Exception as e2:
+                        print(f"❌ Backup save also failed: {e2}")
+                
+                # Save detailed results
+                try:
+                    results_file = os.path.join(opt['path']['log'], 'pruning_results.txt')
+                    with open(results_file, 'w') as f:
+                        f.write("SwinIR Structured Pruning Results\n")
+                        f.write("="*50 + "\n")
+                        f.write(f"Original Parameters: {original_params:,}\n")
+                        f.write(f"Final Parameters: {final_params:,}\n")
+                        f.write(f"Parameter Reduction: {total_reduction:.1%}\n")
+                        f.write(f"Final PSNR: {pipeline_results['final_psnr']:.2f}dB\n")
+                        f.write(f"Evaluation Success: {'PASS' if evaluation_results['success'] else 'FAIL'}\n")
+                        f.write("\nPipeline Results:\n")
+                        for iteration in pipeline_results['iterations']:
+                            f.write(f"  Iteration {iteration['iteration']}: "
+                                   f"Reduction={iteration['actual_reduction']:.1%}, "
+                                   f"PSNR={iteration['psnr_after']:.2f}dB\n")
+                    
+                    print(f"📊 Results saved to: {results_file}")
+                except Exception as e:
+                    print(f"⚠️ Failed to save results file: {e}")
+                
+                print("\n🎉 Structured pruning training completed successfully!")
+                
+            else:
+                print("❌ Pruning pipeline failed!")
+                print(f"Reason: {pipeline_results.get('reason', 'Unknown error')}")
+                return
+                
+        except Exception as e:
+            print(f"❌ Critical error in pruning pipeline: {e}")
+            import traceback
+            traceback.print_exc()
+            return
+    
+    else:
+        print("Distributed training detected - pruning only runs on rank 0")
+
+
+if __name__ == '__main__':
+    main()
+                        f.write(f"Evaluation Success: {'PASS' if evaluation_results['success'] else 'FAIL'}\n")
+                        f.write("\nPipeline Results:\n")
+                        for iteration in pipeline_results['iterations']:
+                            f.write(f"  Iteration {iteration['iteration']}: "
+                                   f"Reduction={iteration['actual_reduction']:.1%}, "
+                                   f"PSNR={iteration['psnr_after']:.2f}dB\n")
+                    
+                    print(f"📊 Results saved to: {results_file}")
+                except Exception as e:
+                    print(f"⚠️ Failed to save results file: {e}")
+                
+                print("\n🎉 Structured pruning training completed successfully!")
+                
+            else:
+                print("❌ Pruning pipeline failed!")
+                print(f"Reason: {pipeline_results.get('reason', 'Unknown error')}")
+                return
+                
+        except Exception as e:
+            print(f"❌ Critical error in pruning pipeline: {e}")
+            import traceback
+            traceback.print_exc()
+            return
+    
+    else:
+        print("Distributed training detected - pruning only runs on rank 0")
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
             
