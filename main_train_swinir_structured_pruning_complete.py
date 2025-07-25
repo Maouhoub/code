@@ -4,6 +4,7 @@ import argparse
 import random
 import numpy as np
 import logging
+import gc
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch
@@ -1045,6 +1046,10 @@ class IterativePruningPipeline:
         """Fine-tune model with knowledge distillation"""
         print(f"Fine-tuning for {epochs} epochs...")
         
+        # IMPORTANT: Remove pruning hooks during fine-tuning to avoid in-place operations
+        self.pruner.remove_hooks()
+        print("  Temporarily removed pruning hooks during fine-tuning to avoid gradient conflicts")
+        
         # Get the correct optimizer
         if hasattr(self.model, 'G_optimizer'):
             optimizer = self.model.G_optimizer
@@ -1138,6 +1143,10 @@ class IterativePruningPipeline:
             if avg_loss < 1e-6:
                 print("WARNING: Loss became too small, stopping early")
                 break
+        
+        # Re-register pruning hooks after fine-tuning
+        self.pruner._register_pruning_hooks()
+        print("  Re-registered pruning hooks after fine-tuning")
     
     def _evaluate_model(self, test_loader):
         """Evaluate model PSNR on test set"""
