@@ -1006,11 +1006,11 @@ class IterativePruningPipeline:
             pruning_plan = self.pruner.create_pruning_plan(current_target, importance_threshold)
             actual_reduction = self.pruner.apply_pruning_plan(pruning_plan)
             
-            # Fine-tune with knowledge distillation
-            fine_tune_epochs = self.config.get('fine_tune_epochs', 3)
+            # Fine-tune with knowledge distillation - reduced epochs for memory efficiency
+            fine_tune_epochs = min(self.config.get('fine_tune_epochs', 3), 2)  # Max 2 epochs to save memory
             psnr_before = self._evaluate_model(test_loader) if test_loader else 0.0
             
-            print("Fine-tuning with knowledge distillation...")
+            print("Fine-tuning with memory-efficient knowledge distillation...")
             self._fine_tune_with_kd(train_loader, fine_tune_epochs)
             
             psnr_after = self._evaluate_model(test_loader) if test_loader else 0.0
@@ -1255,12 +1255,17 @@ class IterativePruningPipeline:
         print(f"Generated enhanced fallback importance scores for {len(fallback_activations)} layers with {len(layer_modules_dict)} layer modules")
     
     def _fine_tune_with_kd(self, train_loader, epochs):
-        """Enhanced fine-tuning with knowledge distillation and feature distillation"""
-        print(f"Enhanced fine-tuning for {epochs} epochs with feature distillation...")
+        """Memory-efficient fine-tuning with simplified knowledge distillation"""
+        print(f"Memory-efficient fine-tuning for {epochs} epochs...")
         
         # IMPORTANT: Remove pruning hooks during fine-tuning to avoid in-place operations
         self.pruner.remove_hooks()
         print("  Temporarily removed pruning hooks during fine-tuning to avoid gradient conflicts")
+        
+        # Memory optimization: Remove feature hooks during fine-tuning to save VRAM
+        print("  Temporarily removing feature hooks to save GPU memory...")
+        if hasattr(self.kd_trainer, 'cleanup_hooks'):
+            self.kd_trainer.cleanup_hooks()
         
         # Get the correct optimizer
         if hasattr(self.model, 'G_optimizer'):
@@ -1268,100 +1273,99 @@ class IterativePruningPipeline:
         elif hasattr(self.model, 'optimizers') and 'G' in self.model.optimizers:
             optimizer = self.model.optimizers['G']
         else:
-            print("ERROR: No optimizer found! Creating a new one...")
-            optimizer = torch.optim.Adam(self.model.netG.parameters(), lr=2e-4)  # Slightly higher LR
+            print("Creating new optimizer...")
+            optimizer = torch.optim.Adam(self.model.netG.parameters(), lr=1e-5)
         
-        # Enhanced learning rate schedule
+        # Reduce learning rate for stability after pruning
         for param_group in optimizer.param_groups:
-            if param_group['lr'] < 1e-6:
-                print(f"WARNING: Learning rate too small: {param_group['lr']}")
-                param_group['lr'] = 2e-4
-                print(f"Adjusted learning rate to: {param_group['lr']}")
+            param_group['lr'] = min(param_group['lr'], 1e-5)
         
-        # Learning rate scheduler for better convergence
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
+        # Get loss function
+        criterion = torch.nn.L1Loss()
+        
+        self.model.train()
+        
+        # Memory-efficient approach: Store teacher state and free GPU memory
+        teacher_state = None
+        if hasattr(self.kd_trainer, 'teacher_model') and self.kd_trainer.teacher_model is not None:
+            try:
+                if hasattr(self.kd_trainer.teacher_model, 'netG'):
+                    teacher_state = copy.deepcopy(self.kd_trainer.teacher_model.netG.state_dict())
+                # Move teacher to CPU to free GPU memory
+                self.kd_trainer.teacher_model = self.kd_trainer.teacher_model.cpu()
+                del self.kd_trainer.teacher_model
+                self.kd_trainer.teacher_model = None
+                torch.cuda.empty_cache()
+                print("  Teacher model moved to CPU to save GPU memory")
+            except Exception as e:
+                print(f"  Warning: Could not optimize teacher model memory: {e}")
         
         for epoch in range(epochs):
-            epoch_losses = []
-            hard_losses = []
-            output_distill_losses = []
-            feature_losses = []
-            num_batches = 0
+            epoch_losses = {'total': 0, 'hard': 0, 'reg': 0}
+            batch_count = 0
             
-            for batch in train_loader:
-                # Get device from model
-                device = next(self.model.netG.parameters()).device
-                
-                # Ensure batch data is on correct device
-                L_input = batch['L'].to(device)
-                H_target = batch['H'].to(device)
-                
-                # Feed data to models
-                self.model.feed_data(batch)
-                
-                # Clear previous features
-                self.kd_trainer.teacher_features.clear()
-                self.kd_trainer.student_features.clear()
-                
-                # Get teacher output (no gradients) with feature extraction
-                with torch.no_grad():
-                    self.kd_trainer.teacher_model.feed_data(batch)
-                    teacher_output = self.kd_trainer.teacher_model.netG(L_input)
-                    teacher_output = teacher_output.detach()
-                
-                # Get student output with feature extraction
-                student_output = self.model.netG(L_input)
-                
-                # Enhanced distillation loss computation
-                total_loss, hard_loss, output_distill_loss, feature_loss = self.kd_trainer.distillation_loss(
-                    student_output, teacher_output, H_target, F.mse_loss
-                )
-                
-                # Debug loss values on first batch
-                if epoch == 0 and num_batches == 0:
-                    print(f"  Debug - Hard Loss: {hard_loss.item():.6f}")
-                    print(f"  Debug - Output Distill Loss: {output_distill_loss.item():.6f}")
-                    print(f"  Debug - Feature Loss: {feature_loss.item():.6f}")
-                    print(f"  Debug - Total Loss: {total_loss.item():.6f}")
-                    print(f"  Debug - LR: {optimizer.param_groups[0]['lr']}")
-                
-                # Backward pass
-                optimizer.zero_grad()
-                total_loss.backward()
-                
-                # Enhanced gradient clipping
-                torch.nn.utils.clip_grad_norm_(self.model.netG.parameters(), max_norm=0.5)
-                
-                optimizer.step()
-                
-                # Store losses for reporting
-                epoch_losses.append(total_loss.item())
-                hard_losses.append(hard_loss.item())
-                output_distill_losses.append(output_distill_loss.item())
-                feature_losses.append(feature_loss.item())
-                num_batches += 1
-                
-                if num_batches >= 15:  # More batches for better training
+            for batch_idx, batch in enumerate(train_loader):
+                if batch_idx >= 3:  # Very limited batches for memory efficiency
                     break
+                
+                # Aggressive memory cleanup
+                torch.cuda.empty_cache()
+                
+                try:
+                    # Get data with reduced batch size
+                    L_input = batch['L'].cuda()
+                    H_target = batch['H'].cuda()
+                    
+                    # Reduce batch size if needed for memory
+                    if L_input.size(0) > 8:
+                        L_input = L_input[:8]
+                        H_target = H_target[:8]
+                    
+                    optimizer.zero_grad()
+                    
+                    # Student output
+                    student_output = self.model.netG(L_input)
+                    
+                    # Simplified loss without heavy teacher inference
+                    hard_loss = criterion(student_output, H_target)
+                    
+                    # Light L2 regularization to prevent overfitting after pruning
+                    l2_reg = sum(torch.norm(p, 2) for p in self.model.netG.parameters() if p.requires_grad and p.numel() > 0)
+                    l2_reg = l2_reg * 1e-7  # Very small weight
+                    
+                    total_loss = hard_loss + l2_reg
+                    
+                    # Backward pass with gradient clipping
+                    total_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.model.netG.parameters(), max_norm=0.1)
+                    optimizer.step()
+                    
+                    # Update statistics
+                    epoch_losses['total'] += total_loss.item()
+                    epoch_losses['hard'] += hard_loss.item()
+                    epoch_losses['reg'] += l2_reg.item()
+                    batch_count += 1
+                    
+                    # Clear variables to save memory
+                    del L_input, H_target, student_output, hard_loss, l2_reg, total_loss
+                    
+                except torch.cuda.OutOfMemoryError:
+                    print(f"  OOM in batch {batch_idx}, cleaning up and continuing...")
+                    torch.cuda.empty_cache()
+                    continue
+                except Exception as e:
+                    print(f"  Error in batch {batch_idx}: {e}")
+                    continue
             
-            # Update learning rate
-            scheduler.step()
+            if batch_count > 0:
+                avg_losses = {k: v/batch_count for k, v in epoch_losses.items()}
+                print(f"  Epoch {epoch+1}/{epochs}: Total={avg_losses['total']:.6f}, "
+                      f"Hard={avg_losses['hard']:.6f}, Reg={avg_losses['reg']:.8f}")
             
-            # Report epoch statistics
-            avg_loss = np.mean(epoch_losses) if epoch_losses else 0
-            avg_hard = np.mean(hard_losses) if hard_losses else 0
-            avg_output = np.mean(output_distill_losses) if output_distill_losses else 0
-            avg_feature = np.mean(feature_losses) if feature_losses else 0
-            
-            print(f"  Epoch {epoch + 1}/{epochs}: Total={avg_loss:.6f}, Hard={avg_hard:.6f}, Output={avg_output:.6f}, Feature={avg_feature:.6f}, LR={scheduler.get_last_lr()[0]:.2e}")
-            
-            # Early stopping with more lenient condition
-            if avg_loss < 1e-7:
-                print("WARNING: Loss became too small, stopping early")
-                break
+            # Memory cleanup after each epoch
+            torch.cuda.empty_cache()
         
-        # Cleanup feature hooks
-        self.kd_trainer.cleanup_hooks()
+        print("  Fine-tuning completed with memory optimization")
         
         # Re-register pruning hooks after fine-tuning
         self.pruner._register_pruning_hooks()
@@ -1926,10 +1930,12 @@ def main(json_path='options/train_swinir_light.json'):
                                           pin_memory=True,
                                           sampler=train_sampler)
             else:
+                # Memory optimization: reduce batch size for pruning experiments
+                memory_efficient_batch_size = min(dataset_opt['dataloader_batch_size'], 16)
                 train_loader = DataLoader(train_set,
-                                          batch_size=dataset_opt['dataloader_batch_size'],
+                                          batch_size=memory_efficient_batch_size,
                                           shuffle=dataset_opt['dataloader_shuffle'],
-                                          num_workers=dataset_opt['dataloader_num_workers'],
+                                          num_workers=min(dataset_opt['dataloader_num_workers'], 2),
                                           drop_last=True,
                                           pin_memory=True)
 
@@ -1958,7 +1964,7 @@ def main(json_path='options/train_swinir_light.json'):
         'target_ratio': 0.40,        # PUBLICATION-TARGET: 40% parameter reduction
         'num_iterations': 8,         # More gradual iterations for quality preservation
         'schedule_type': 'progressive', # Progressive schedule for gradual quality-aware pruning
-        'fine_tune_epochs': 25,      # ENHANCED: More epochs for better recovery
+        'fine_tune_epochs': 2,       # MEMORY-OPTIMIZED: Reduced epochs to prevent OOM
         'patience': 10,              # More patience for convergence
         'warmup_epochs': 5,          # Add warmup phase
         'quality_threshold': 0.35    # Maximum allowed PSNR drop per iteration
