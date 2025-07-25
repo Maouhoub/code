@@ -1127,10 +1127,24 @@ class IterativePruningPipeline:
                 
                 final_activations[layer_name] = averaged
         
-        # Update importance scores with real activations
+        # Update importance scores with real activations AND layer modules
         if final_activations:
-            self.mask_manager.update_importance_scores(final_activations)
-            print(f"Updated importance scores for {len(final_activations)} layers")
+            # Collect layer modules for enhanced importance computation
+            layer_modules_dict = {}
+            for layer_name in final_activations.keys():
+                try:
+                    # Navigate to the actual layer module
+                    current_module = network
+                    parts = layer_name.split('.')
+                    for part in parts:
+                        current_module = getattr(current_module, part)
+                    layer_modules_dict[layer_name] = current_module
+                except AttributeError:
+                    pass  # Skip if module not found
+            
+            # Update with both activations and layer modules for enhanced importance
+            self.mask_manager.update_importance_scores(final_activations, layer_modules_dict)
+            print(f"Updated importance scores for {len(final_activations)} layers with {len(layer_modules_dict)} layer modules")
         else:
             print("Warning: No activations captured, using fallback method")
             self._fallback_importance_collection()
@@ -1138,11 +1152,13 @@ class IterativePruningPipeline:
         self.model.train()
     
     def _fallback_importance_collection(self):
-        """Fallback method for importance collection when real capture fails"""
-        print("Using fallback importance collection...")
+        """Enhanced fallback method with layer modules for better importance estimation"""
+        print("Using enhanced fallback importance collection...")
         device = next(self.model.netG.parameters()).device if hasattr(self.model, 'netG') else next(self.model.parameters()).device
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
         
         fallback_activations = {}
+        layer_modules_dict = {}
         
         # Generate more realistic synthetic activations
         for name in self.mask_manager.attention_masks.keys():
@@ -1153,6 +1169,16 @@ class IterativePruningPipeline:
             attention_weights[:, :num_heads//2] *= 2.0  # First half more important
             attention_weights = F.softmax(attention_weights, dim=-1)
             fallback_activations[name] = attention_weights
+            
+            # Try to get the actual layer module
+            try:
+                current_module = network
+                parts = name.split('.')
+                for part in parts:
+                    current_module = getattr(current_module, part)
+                layer_modules_dict[name] = current_module
+            except AttributeError:
+                pass
         
         for name in self.mask_manager.channel_masks.keys():
             num_channels = len(self.mask_manager.channel_masks[name])
@@ -1161,9 +1187,19 @@ class IterativePruningPipeline:
             # Make some channels more active
             activations[:, :, :num_channels//2] *= 1.5
             fallback_activations[name] = activations
+            
+            # Try to get the actual layer module
+            try:
+                current_module = network
+                parts = name.split('.')
+                for part in parts:
+                    current_module = getattr(current_module, part)
+                layer_modules_dict[name] = current_module
+            except AttributeError:
+                pass
         
-        self.mask_manager.update_importance_scores(fallback_activations)
-        print(f"Generated fallback importance scores for {len(fallback_activations)} layers")
+        self.mask_manager.update_importance_scores(fallback_activations, layer_modules_dict)
+        print(f"Generated enhanced fallback importance scores for {len(fallback_activations)} layers with {len(layer_modules_dict)} layer modules")
     
     def _fine_tune_with_kd(self, train_loader, epochs):
         """Enhanced fine-tuning with knowledge distillation and feature distillation"""
