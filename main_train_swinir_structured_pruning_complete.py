@@ -912,12 +912,14 @@ class IterativePruningPipeline:
         
         with torch.no_grad():
             for i, batch in enumerate(train_loader):
-                if i >= 5:  # Use more batches for better statistics
+                if i >= 3:  # Reduce to 3 batches to save memory
                     break
                     
                 # Clear CUDA cache before each batch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
+                    current_mem = torch.cuda.memory_allocated() / 1024**3
+                    print(f"    GPU memory before batch {i}: {current_mem:.2f} GB")
                     
                 try:
                     # Ensure data is on correct device
@@ -925,9 +927,9 @@ class IterativePruningPipeline:
                         L_input = batch['L'].to(device)
                     else:
                         # Create dummy input if batch structure is different
-                        L_input = torch.randn(2, 3, 64, 64, device=device)
+                        L_input = torch.randn(1, 3, 64, 64, device=device)  # Smaller batch size
                     
-                    print(f"  Processing batch {i+1}/5 - Input shape: {L_input.shape}")
+                    print(f"  Processing batch {i+1}/3 - Input shape: {L_input.shape}")
                     
                     # Forward pass to capture real activations
                     self.model.feed_data(batch)
@@ -938,17 +940,18 @@ class IterativePruningPipeline:
                     del L_input
                     if 'L' in batch:
                         del batch['L']
+                    if 'H' in batch:
+                        del batch['H']
+                    del batch
+                    
+                    # Force garbage collection
+                    import gc
+                    gc.collect()
                     
                 except Exception as e:
                     print(f"  Warning: Batch {i} failed: {e}")
-                    # Create fallback synthetic input
-                    try:
-                        L_input = torch.randn(2, 3, 64, 64, device=device)
-                        _ = network(L_input)
-                        batch_count += 1
-                        del L_input
-                    except Exception as e2:
-                        print(f"  Error: Even fallback failed: {e2}")
+                    # Skip fallback to save memory
+                    continue
         
         # Remove hooks
         for hook in hooks:
@@ -960,21 +963,45 @@ class IterativePruningPipeline:
         final_activations = {}
         for layer_name, activation_list in captured_activations.items():
             if activation_list:
+                print(f"  Processing {layer_name}: {len(activation_list)} activations")
+                
                 # Handle different batch sizes by concatenating and averaging
                 if len(activation_list) > 1:
-                    try:
-                        # Try stacking if same shape
-                        stacked = torch.stack(activation_list, dim=0)
-                        averaged = torch.mean(stacked, dim=0)
-                    except RuntimeError:
-                        # If different shapes, concatenate along batch dimension
-                        concatenated = torch.cat(activation_list, dim=0)
-                        averaged = torch.mean(concatenated, dim=0)
+                    # Check shapes first
+                    shapes = [act.shape for act in activation_list]
+                    print(f"    Activation shapes: {shapes}")
+                    
+                    # Check if all shapes are the same
+                    all_same_shape = all(shape == shapes[0] for shape in shapes)
+                    
+                    if all_same_shape:
+                        try:
+                            # Try stacking if same shape
+                            stacked = torch.stack(activation_list, dim=0)
+                            averaged = torch.mean(stacked, dim=0)
+                            print(f"    ✓ Stacked successfully: {averaged.shape}")
+                        except RuntimeError as e:
+                            print(f"    ✗ Stacking failed despite same shapes: {e}")
+                            # Fallback to first activation
+                            averaged = activation_list[0]
+                    else:
+                        print(f"    Different shapes detected, using concatenation approach")
+                        try:
+                            # If different shapes, concatenate along batch dimension
+                            concatenated = torch.cat(activation_list, dim=0)
+                            averaged = torch.mean(concatenated, dim=0)
+                            print(f"    ✓ Concatenated successfully: {averaged.shape}")
+                        except RuntimeError as e:
+                            print(f"    ✗ Concatenation failed: {e}")
+                            # Fallback to largest activation
+                            largest_idx = max(range(len(activation_list)), key=lambda i: activation_list[i].numel())
+                            averaged = activation_list[largest_idx]
+                            print(f"    Using largest activation: {averaged.shape}")
                 else:
                     averaged = activation_list[0]
+                    print(f"    Single activation: {averaged.shape}")
                 
                 final_activations[layer_name] = averaged
-                print(f"  Collected activations for {layer_name}: {averaged.shape}")
         
         # Update importance scores with real activations
         if final_activations:
