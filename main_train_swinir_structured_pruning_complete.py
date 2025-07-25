@@ -192,6 +192,16 @@ class ImportanceMaskManager:
         if attention_weights is None or len(attention_weights.shape) != 4:
             return None
         
+        # Ensure attention_weights are on the correct device
+        if hasattr(self, 'device'):
+            device = self.device
+        else:
+            device = next(self.model.netG.parameters()).device if hasattr(self.model, 'netG') else next(self.model.parameters()).device
+        
+        # Move attention_weights to the correct device if needed
+        if attention_weights.device != device:
+            attention_weights = attention_weights.to(device)
+        
         # 1. Activation-based importance (entropy)
         attention_probs = F.softmax(attention_weights, dim=-1)
         entropy = -torch.sum(attention_probs * torch.log(attention_probs + 1e-8), dim=-1)
@@ -204,6 +214,10 @@ class ImportanceMaskManager:
                 qkv_weight = layer_module.qkv.weight
                 num_heads = getattr(layer_module, 'num_heads', 6)
                 head_dim = qkv_weight.shape[0] // (3 * num_heads)
+                
+                # Ensure weight is on the same device
+                if qkv_weight.device != device:
+                    qkv_weight = qkv_weight.to(device)
                 
                 # Compute L2 norm for each head's weights
                 head_norms = []
@@ -222,7 +236,9 @@ class ImportanceMaskManager:
                 
                 magnitude_importance = torch.stack(head_norms)
         
-        # 3. Combined importance (weighted sum)
+        # 3. Combined importance (weighted sum) - ensure both tensors are on same device
+        activation_importance = activation_importance.to(device)
+        magnitude_importance = magnitude_importance.to(device)
         combined_importance = 0.6 * activation_importance + 0.4 * magnitude_importance
         return combined_importance
 
@@ -230,6 +246,16 @@ class ImportanceMaskManager:
         """Compute importance scores for MLP channels using multiple metrics"""
         if activations is None:
             return None
+        
+        # Ensure activations are on the correct device
+        if hasattr(self, 'device'):
+            device = self.device
+        else:
+            device = next(self.model.netG.parameters()).device if hasattr(self.model, 'netG') else next(self.model.parameters()).device
+        
+        # Move activations to the correct device if needed
+        if activations.device != device:
+            activations = activations.to(device)
         
         # 1. Activation-based importance (L2 norm)
         if len(activations.shape) == 3:  # [batch, seq_len, channels]
@@ -245,9 +271,14 @@ class ImportanceMaskManager:
             with torch.no_grad():
                 # L1 norm of weights for each output channel
                 weight = layer_module.weight
+                # Ensure weight is on the same device
+                if weight.device != device:
+                    weight = weight.to(device)
                 magnitude_importance = torch.norm(weight, p=1, dim=1)  # L1 norm per output channel
         
-        # 3. Combined importance
+        # 3. Combined importance - ensure both tensors are on same device
+        activation_importance = activation_importance.to(device)
+        magnitude_importance = magnitude_importance.to(device)
         combined_importance = 0.5 * activation_importance + 0.5 * magnitude_importance
         return combined_importance
 
@@ -968,8 +999,8 @@ class IterativePruningPipeline:
                 else:
                     # For MLP layers, capture actual output activations
                     if isinstance(output, torch.Tensor):
-                        # Move to CPU immediately to save GPU memory
-                        activation = output.detach().cpu().clone()
+                        # Keep activation on GPU but detach from computation graph
+                        activation = output.detach().clone()
                         if layer_name not in captured_activations:
                             captured_activations[layer_name] = []
                         captured_activations[layer_name].append(activation)
