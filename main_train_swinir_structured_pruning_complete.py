@@ -406,7 +406,7 @@ class StructuredPruner:
         self.hooks = []
         
     def create_pruning_plan(self, target_ratio, importance_threshold=0.3):
-        """Create QUALITY-AWARE structured pruning plan based on importance scores"""
+        """Create AGGRESSIVE structured pruning plan based on importance scores"""
         plan = {
             'attention_heads': {},
             'mlp_channels': {},
@@ -417,50 +417,45 @@ class StructuredPruner:
         total_params = sum(p.numel() for p in self.model.parameters())
         params_to_remove = 0
         
-        # CONSERVATIVE attention head pruning for quality preservation
+        # MORE AGGRESSIVE attention head pruning
         for name, mask in self.mask_manager.attention_masks.items():
             if name in self.mask_manager.importance_scores:
                 importance = self.mask_manager.importance_scores[name]
                 num_heads = len(importance)
                 
-                # Quality-aware pruning: more conservative approach
-                if target_ratio <= 0.3:  # Conservative mode
-                    # Prune only bottom 20% of heads
+                # More aggressive pruning: use percentile-based pruning
+                if target_ratio >= 0.6:  # Aggressive mode
+                    # Prune bottom 70% of heads based on importance
                     _, sorted_indices = torch.sort(importance)
-                    heads_to_prune = max(1, int(num_heads * 0.2))
-                elif target_ratio <= 0.45:  # Moderate mode  
-                    # Prune bottom 40% of heads
-                    _, sorted_indices = torch.sort(importance)
-                    heads_to_prune = max(1, int(num_heads * 0.4))
-                else:  # Aggressive mode (only if really needed)
-                    # Prune bottom 60% of heads
-                    _, sorted_indices = torch.sort(importance)
-                    heads_to_prune = max(1, int(num_heads * 0.6))
+                    heads_to_prune = int(num_heads * 0.7)
+                else:
+                    # Standard pruning
+                    normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
+                    heads_to_prune = (normalized_importance < importance_threshold).sum().item()
                 
-                heads_to_prune = min(heads_to_prune, num_heads - 2)  # Keep at least 2 heads for stability
+                heads_to_prune = min(heads_to_prune, num_heads - 1)  # Keep at least one head
                 
                 if heads_to_prune > 0:
                     plan['attention_heads'][name] = heads_to_prune
                     params_to_remove += heads_to_prune * (64 * 64)
         
-        # CONSERVATIVE MLP channel pruning for quality preservation
+        # MORE AGGRESSIVE MLP channel pruning  
         for name, mask in self.mask_manager.channel_masks.items():
             if name in self.mask_manager.importance_scores:
                 importance = self.mask_manager.importance_scores[name]
                 num_channels = len(importance)
                 
-                # Quality-aware channel pruning
-                if target_ratio <= 0.3:  # Conservative mode
-                    # Prune 30% of channels
-                    channels_to_prune = int(num_channels * 0.3)
-                elif target_ratio <= 0.45:  # Moderate mode
-                    # Prune 50% of channels  
-                    channels_to_prune = int(num_channels * 0.5)
-                else:  # Aggressive mode
-                    # Prune 70% of channels
-                    channels_to_prune = int(num_channels * 0.7)
+                # More aggressive channel pruning
+                if target_ratio >= 0.6:  # Aggressive mode
+                    # Prune 60-80% of channels based on target ratio
+                    prune_percentage = min(0.8, target_ratio + 0.2)
+                    channels_to_prune = int(num_channels * prune_percentage)
+                else:
+                    # Standard pruning
+                    normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
+                    channels_to_prune = int(num_channels * target_ratio * 1.5)  # More aggressive multiplier
                 
-                channels_to_prune = min(channels_to_prune, num_channels - 16)  # Keep minimum 16 channels for stability
+                channels_to_prune = min(channels_to_prune, num_channels - 8)  # Keep minimum 8 channels
                 
                 if channels_to_prune > 0:
                     plan['mlp_channels'][name] = channels_to_prune
@@ -695,11 +690,11 @@ class StructuredPruner:
 class KnowledgeDistillationTrainer:
     """Enhanced Knowledge Distillation for Fine-tuning with Feature Distillation"""
     
-    def __init__(self, teacher_model, student_model, temperature=4.0, alpha=0.7):
+    def __init__(self, teacher_model, student_model, temperature=6.0, alpha=0.6):
         self.teacher_model = teacher_model
         self.student_model = student_model
-        self.temperature = temperature  # Lower temperature for sharper knowledge transfer
-        self.alpha = alpha  # Higher weight on distillation loss
+        self.temperature = temperature  # Higher temperature for better knowledge transfer
+        self.alpha = alpha  # Balanced hard/soft loss
         
         # Feature extraction hooks for multi-level distillation
         self.teacher_features = {}
@@ -734,34 +729,12 @@ class KnowledgeDistillationTrainer:
         
         def create_feature_hook(feature_dict, layer_name):
             def hook_fn(module, input, output):
-                if isinstance(output, torch.Tensor) and output.numel() > 0:
-                    # Store normalized features for better matching
-                    feature = output.detach()
-                    # Normalize features to reduce scale differences
-                    feature = F.normalize(feature.view(feature.size(0), -1), p=2, dim=1)
-                    feature_dict[layer_name] = feature
-                elif isinstance(output, (tuple, list)) and len(output) > 0:
-                    # Handle tuple/list outputs, take the first tensor
-                    feature = output[0].detach()
-                    feature = F.normalize(feature.view(feature.size(0), -1), p=2, dim=1)
-                    feature_dict[layer_name] = feature
+                if isinstance(output, torch.Tensor):
+                    feature_dict[layer_name] = output.detach()
             return hook_fn
         
-        # Hook multiple layers for comprehensive feature distillation
-        layer_names = []
-        
-        # Try to find suitable intermediate layers
-        for name, module in teacher_net.named_modules():
-            if ('layers.1.residual_group' in name or 'layers.2.residual_group' in name) and len(name.split('.')) <= 4:
-                layer_names.append(name)
-                if len(layer_names) >= 4:  # Limit to 4 layers to avoid memory issues
-                    break
-        
-        # Fallback to basic layers if specific ones not found
-        if not layer_names:
-            layer_names = ['layers.1', 'layers.2']
-        
-        print(f"Registering feature distillation hooks for layers: {layer_names}")
+        # Hook middle layers for feature distillation
+        layer_names = ['layers.1', 'layers.2']  # Middle layers of SwinIR
         
         for layer_name in layer_names:
             try:
@@ -783,13 +756,8 @@ class KnowledgeDistillationTrainer:
                 )
                 self.student_hooks.append(hook)
                 
-                print(f"  ✓ Registered feature hooks for {layer_name}")
-                
-            except AttributeError as e:
-                print(f"  ✗ Could not register hook for {layer_name}: {e}")
+            except AttributeError:
                 continue
-        
-        print(f"Successfully registered {len(self.teacher_hooks)} teacher and {len(self.student_hooks)} student feature hooks")
     
     def distillation_loss(self, student_output, teacher_output, target, hard_loss_fn):
         """Enhanced knowledge distillation loss with feature distillation"""
@@ -812,68 +780,28 @@ class KnowledgeDistillationTrainer:
         return total_loss, hard_loss, output_distill_loss, feature_loss
     
     def feature_distillation_loss(self, student_features, teacher_features):
-        """Enhanced feature-level distillation loss with better alignment"""
+        """Enhanced feature-level distillation loss"""
         total_loss = 0
         count = 0
-        
-        if not teacher_features or not student_features:
-            return torch.tensor(0.0, device=next(self.student_model.parameters()).device)
         
         for layer_name in teacher_features:
             if layer_name in student_features:
                 t_feat = teacher_features[layer_name]
                 s_feat = student_features[layer_name]
                 
-                # Ensure features are on the same device
-                if t_feat.device != s_feat.device:
-                    t_feat = t_feat.to(s_feat.device)
-                
-                # Enhanced feature matching with dimension alignment
+                # Adaptive feature matching
                 if s_feat.shape != t_feat.shape:
-                    # More sophisticated feature alignment
-                    if len(t_feat.shape) >= 2 and len(s_feat.shape) >= 2:
-                        # Flatten and potentially interpolate features
-                        t_flat = t_feat.view(t_feat.size(0), -1)
-                        s_flat = s_feat.view(s_feat.size(0), -1)
-                        
-                        # If different feature dimensions, use projection
-                        if t_flat.size(1) != s_flat.size(1):
-                            min_dim = min(t_flat.size(1), s_flat.size(1))
-                            t_flat = t_flat[:, :min_dim]
-                            s_flat = s_flat[:, :min_dim]
-                        
-                        t_feat = t_flat
-                        s_feat = s_flat
-                    else:
-                        continue  # Skip incompatible features
+                    # Simple adaptation: global average pooling
+                    if len(t_feat.shape) > 2:
+                        t_feat = torch.mean(t_feat, dim=list(range(2, len(t_feat.shape))))
+                        s_feat = torch.mean(s_feat, dim=list(range(2, len(s_feat.shape))))
                 
-                # Compute multiple types of feature distillation losses
-                try:
-                    # 1. MSE loss on normalized features
-                    mse_loss = F.mse_loss(s_feat, t_feat)
-                    
-                    # 2. Cosine similarity loss
-                    cosine_sim = F.cosine_similarity(s_feat, t_feat, dim=1).mean()
-                    cosine_loss = 1 - cosine_sim
-                    
-                    # 3. L1 loss for sparsity
-                    l1_loss = F.l1_loss(s_feat, t_feat)
-                    
-                    # Combined feature loss
-                    feature_loss = 0.5 * mse_loss + 0.3 * cosine_loss + 0.2 * l1_loss
-                    
-                    total_loss += feature_loss
-                    count += 1
-                    
-                except Exception as e:
-                    print(f"Warning: Feature distillation failed for {layer_name}: {e}")
-                    continue
+                # Feature distillation loss
+                loss = F.mse_loss(s_feat, t_feat)
+                total_loss += loss
+                count += 1
         
-        if count > 0:
-            return total_loss / count
-        else:
-            # Return small positive loss to maintain gradient flow
-            return torch.tensor(1e-6, device=next(self.student_model.parameters()).device, requires_grad=True)
+        return total_loss / count if count > 0 else torch.tensor(0.0, device=list(student_features.values())[0].device if student_features else torch.device('cpu'))
     
     def cleanup_hooks(self):
         """Remove all registered hooks"""
@@ -946,22 +874,15 @@ class IterativePruningPipeline:
             print(f"PRUNING ITERATION {iteration + 1}/{num_iterations}")
             print(f"{'='*60}")
             
-            # Calculate target ratio for this iteration with progressive strategy
+            # Calculate target ratio for this iteration
             if schedule_type == 'linear':
                 current_target = target_reduction * (iteration + 1) / num_iterations
             elif schedule_type == 'exponential':
                 current_target = target_reduction * (1 - (0.5 ** (iteration + 1)))
-            elif schedule_type == 'progressive':
-                # New progressive strategy for quality preservation
-                progress_ratios = [0.08, 0.15, 0.25, 0.32, 0.38, 0.42, 0.45, 0.48]
-                current_target = progress_ratios[min(iteration, len(progress_ratios)-1)]
             else:
                 current_target = target_reduction / num_iterations
                 
             print(f"Target ratio: {current_target:.1%}")
-            
-            # Layer-wise sensitivity analysis for publication-quality results
-            sensitivity_results = self._analyze_layer_sensitivity(test_loader)
             
             # Collect importance scores
             self._collect_importance_scores(train_loader)
@@ -999,27 +920,9 @@ class IterativePruningPipeline:
             print(f"Iteration {iteration + 1} completed")
             print(f"PSNR: {psnr_after:.2f}dB (drop: {psnr_before - psnr_after:.2f}dB)")
             
-            # Convergence check with quality-aware early stopping
-            psnr_drop = psnr_before - psnr_after
-            if psnr_drop > 0.8:  # More conservative PSNR drop threshold
-                print(f"Warning: PSNR drop ({psnr_drop:.2f}dB) exceeds threshold (0.8dB)")
-                print("Implementing quality recovery measures...")
-                
-                # Quality recovery: Additional fine-tuning with lower learning rate
-                self._quality_recovery_training(train_loader, recovery_epochs=8)
-                psnr_after_recovery = self._evaluate_model(test_loader) if test_loader else 0.0
-                
-                if psnr_after_recovery > psnr_after:
-                    psnr_after = psnr_after_recovery
-                    print(f"Quality recovery successful: PSNR improved to {psnr_after:.2f}dB")
-                
-                # Early stopping if quality cannot be recovered
-                if psnr_before - psnr_after > 1.0:
-                    print(f"EARLY STOPPING: Unrecoverable quality loss ({psnr_before - psnr_after:.2f}dB)")
-                    print("Recommendation: Reduce target pruning ratio for better quality preservation")
-                    results['early_stop'] = True
-                    results['early_stop_reason'] = f"Quality loss {psnr_before - psnr_after:.2f}dB > 1.0dB threshold"
-                    break
+            # Convergence check
+            if psnr_before - psnr_after > 1.0:  # PSNR drop too large
+                print("Warning: Large PSNR drop detected")
         
         # Final results
         total_reduction = (original_params - current_params) / original_params
@@ -1036,14 +939,6 @@ class IterativePruningPipeline:
         print(f"Iterations completed: {num_iterations}")
         print(f"Total time: {time.time() - start_time:.2f}s")
         print(f"Final PSNR: {psnr_after:.2f}dB")
-        
-        # Save detailed results for publication analysis
-        results['sensitivity_analysis'] = sensitivity_results if 'sensitivity_results' in locals() else {}
-        results['layer_importance'] = dict(self.mask_manager.importance_scores)
-        results['pruning_history'] = {
-            'attention_pruned': sum(len(plan.get('attention_heads', {})) for plan in [iteration.get('pruning_plan', {}) for iteration in results['iterations']]),
-            'mlp_pruned': sum(len(plan.get('mlp_channels', {})) for plan in [iteration.get('pruning_plan', {}) for iteration in results['iterations']])
-        }
         
         return results
     
@@ -1168,6 +1063,178 @@ class IterativePruningPipeline:
         
         self.mask_manager.update_importance_scores(fallback_activations, layer_modules_dict)
         print(f"Generated basic fallback importance scores for {len(fallback_activations)} layers")
+        
+        # Register hooks for all attention and MLP layers
+        print(f"Registering activation capture hooks...")
+        hook_count = 0
+        
+        print(f"Debug: Found {len(self.mask_manager.attention_masks)} attention layers to hook")
+        print(f"Debug: Found {len(self.mask_manager.channel_masks)} channel layers to hook")
+        
+        for layer_name in self.mask_manager.attention_masks.keys():
+            print(f"  Attempting to register attention hook for: {layer_name}")
+            try:
+                # Navigate to the layer
+                current_module = network
+                parts = layer_name.split('.')
+                for part in parts:
+                    current_module = getattr(current_module, part)
+                
+                hook = current_module.register_forward_hook(
+                    create_activation_hook(layer_name, is_attention=True)
+                )
+                hooks.append(hook)
+                hook_count += 1
+                print(f"    ✓ Successfully registered attention hook #{hook_count}")
+            except AttributeError as e:
+                print(f"    ✗ Could not register hook for {layer_name}: {e}")
+            except Exception as e:
+                print(f"    ✗ Unexpected error for {layer_name}: {e}")
+        
+        for layer_name in self.mask_manager.channel_masks.keys():
+            print(f"  Attempting to register channel hook for: {layer_name}")
+            try:
+                # Navigate to the layer
+                current_module = network
+                parts = layer_name.split('.')
+                for part in parts:
+                    current_module = getattr(current_module, part)
+                
+                hook = current_module.register_forward_hook(
+                    create_activation_hook(layer_name, is_attention=False)
+                )
+                hooks.append(hook)
+                hook_count += 1
+                print(f"    ✓ Successfully registered channel hook #{hook_count}")
+            except AttributeError as e:
+                print(f"    ✗ Could not register hook for {layer_name}: {e}")
+            except Exception as e:
+                print(f"    ✗ Unexpected error for {layer_name}: {e}")
+        
+        print(f"Registered {hook_count} activation capture hooks")
+        
+        # Run forward passes to collect activations
+        batch_count = 0
+        print(f"\n🔄 Starting activation collection with memory optimization...")
+        if torch.cuda.is_available():
+            print(f"  Initial GPU memory: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+        
+        with torch.no_grad():
+            for i, batch in enumerate(train_loader):
+                if i >= 3:  # Reduce to 3 batches to save memory
+                    break
+                    
+                # Clear CUDA cache before each batch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    current_mem = torch.cuda.memory_allocated() / 1024**3
+                    print(f"    GPU memory before batch {i}: {current_mem:.2f} GB")
+                    
+                try:
+                    # Ensure data is on correct device
+                    if 'L' in batch:
+                        L_input = batch['L'].to(device)
+                    else:
+                        # Create dummy input if batch structure is different
+                        L_input = torch.randn(1, 3, 64, 64, device=device)  # Smaller batch size
+                    
+                    print(f"  Processing batch {i+1}/3 - Input shape: {L_input.shape}")
+                    
+                    # Forward pass to capture real activations
+                    self.model.feed_data(batch)
+                    _ = self.model.netG(L_input)
+                    batch_count += 1
+                    
+                    # Clear batch data immediately
+                    del L_input
+                    if 'L' in batch:
+                        del batch['L']
+                    if 'H' in batch:
+                        del batch['H']
+                    del batch
+                    
+                    # Force garbage collection
+                    import gc
+                    gc.collect()
+                    
+                except Exception as e:
+                    print(f"  Warning: Batch {i} failed: {e}")
+                    # Skip fallback to save memory
+                    continue
+        
+        # Remove hooks
+        for hook in hooks:
+            hook.remove()
+        
+        print(f"Processed {batch_count} batches for importance collection")
+        
+        # Process captured activations into importance scores
+        final_activations = {}
+        for layer_name, activation_list in captured_activations.items():
+            if activation_list:
+                print(f"  Processing {layer_name}: {len(activation_list)} activations")
+                
+                # Handle different batch sizes by concatenating and averaging
+                if len(activation_list) > 1:
+                    # Check shapes first
+                    shapes = [act.shape for act in activation_list]
+                    print(f"    Activation shapes: {shapes}")
+                    
+                    # Check if all shapes are the same
+                    all_same_shape = all(shape == shapes[0] for shape in shapes)
+                    
+                    if all_same_shape:
+                        try:
+                            # Try stacking if same shape
+                            stacked = torch.stack(activation_list, dim=0)
+                            averaged = torch.mean(stacked, dim=0)
+                            print(f"    ✓ Stacked successfully: {averaged.shape}")
+                        except RuntimeError as e:
+                            print(f"    ✗ Stacking failed despite same shapes: {e}")
+                            # Fallback to first activation
+                            averaged = activation_list[0]
+                    else:
+                        print(f"    Different shapes detected, using concatenation approach")
+                        try:
+                            # If different shapes, concatenate along batch dimension
+                            concatenated = torch.cat(activation_list, dim=0)
+                            averaged = torch.mean(concatenated, dim=0)
+                            print(f"    ✓ Concatenated successfully: {averaged.shape}")
+                        except RuntimeError as e:
+                            print(f"    ✗ Concatenation failed: {e}")
+                            # Fallback to largest activation
+                            largest_idx = max(range(len(activation_list)), key=lambda i: activation_list[i].numel())
+                            averaged = activation_list[largest_idx]
+                            print(f"    Using largest activation: {averaged.shape}")
+                else:
+                    averaged = activation_list[0]
+                    print(f"    Single activation: {averaged.shape}")
+                
+                final_activations[layer_name] = averaged
+        
+        # Update importance scores with real activations AND layer modules
+        if final_activations:
+            # Collect layer modules for enhanced importance computation
+            layer_modules_dict = {}
+            for layer_name in final_activations.keys():
+                try:
+                    # Navigate to the actual layer module
+                    current_module = network
+                    parts = layer_name.split('.')
+                    for part in parts:
+                        current_module = getattr(current_module, part)
+                    layer_modules_dict[layer_name] = current_module
+                except AttributeError:
+                    pass  # Skip if module not found
+            
+            # Update with both activations and layer modules for enhanced importance
+            self.mask_manager.update_importance_scores(final_activations, layer_modules_dict)
+            print(f"Updated importance scores for {len(final_activations)} layers with {len(layer_modules_dict)} layer modules")
+        else:
+            print("Warning: No activations captured, using fallback method")
+            self._fallback_importance_collection()
+        
+        self.model.train()
     
     def _fallback_importance_collection(self):
         """Enhanced fallback method with layer modules for better importance estimation"""
@@ -1359,124 +1426,6 @@ class IterativePruningPipeline:
         
         self.model.train()
         return total_psnr / count if count > 0 else 0.0
-    
-    def _quality_recovery_training(self, train_loader, recovery_epochs=8):
-        """Additional training phase with reduced learning rate for quality recovery"""
-        print(f"Starting quality recovery training for {recovery_epochs} epochs...")
-        
-        # Temporarily remove pruning hooks to avoid conflicts
-        self.pruner.remove_hooks()
-        
-        # Get optimizer with reduced learning rate
-        if hasattr(self.model, 'G_optimizer'):
-            optimizer = self.model.G_optimizer
-        elif hasattr(self.model, 'optimizers') and 'G' in self.model.optimizers:
-            optimizer = self.model.optimizers['G']
-        else:
-            optimizer = torch.optim.Adam(self.model.netG.parameters(), lr=1e-5)
-        
-        # Reduce learning rate for quality recovery
-        original_lrs = []
-        for param_group in optimizer.param_groups:
-            original_lrs.append(param_group['lr'])
-            param_group['lr'] = param_group['lr'] * 0.1  # 10x reduction
-        
-        # Enhanced knowledge distillation for recovery
-        for epoch in range(recovery_epochs):
-            epoch_losses = []
-            num_batches = 0
-            
-            for batch in train_loader:
-                device = next(self.model.netG.parameters()).device
-                L_input = batch['L'].to(device)
-                H_target = batch['H'].to(device)
-                
-                # Feed data to models
-                self.model.feed_data(batch)
-                
-                # Clear previous features
-                self.kd_trainer.teacher_features.clear()
-                self.kd_trainer.student_features.clear()
-                
-                # Enhanced teacher-student training
-                with torch.no_grad():
-                    self.kd_trainer.teacher_model.feed_data(batch)
-                    teacher_output = self.kd_trainer.teacher_model.netG(L_input)
-                    teacher_output = teacher_output.detach()
-                
-                student_output = self.model.netG(L_input)
-                
-                # Higher emphasis on distillation during recovery
-                total_loss, hard_loss, output_distill_loss, feature_loss = self.kd_trainer.distillation_loss(
-                    student_output, teacher_output, H_target, F.mse_loss
-                )
-                
-                # Emphasize knowledge distillation more during recovery
-                recovery_loss = 0.2 * hard_loss + 0.8 * output_distill_loss
-                
-                optimizer.zero_grad()
-                recovery_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.netG.parameters(), max_norm=0.1)
-                optimizer.step()
-                
-                epoch_losses.append(recovery_loss.item())
-                num_batches += 1
-                
-                if num_batches >= 10:  # Limited batches for recovery
-                    break
-            
-            avg_loss = np.mean(epoch_losses) if epoch_losses else 0
-            print(f"  Recovery Epoch {epoch + 1}/{recovery_epochs}: Loss={avg_loss:.6f}")
-        
-        # Restore original learning rates
-        for param_group, original_lr in zip(optimizer.param_groups, original_lrs):
-            param_group['lr'] = original_lr
-        
-        # Re-register pruning hooks
-        self.pruner._register_pruning_hooks()
-        print("  Quality recovery training completed")
-    
-    def _analyze_layer_sensitivity(self, test_loader):
-        """Analyze layer-wise sensitivity for publication-quality pruning"""
-        if test_loader is None or len(self.mask_manager.attention_masks) == 0:
-            return {}
-        
-        print("Performing layer-wise sensitivity analysis...")
-        
-        # Get baseline PSNR
-        baseline_psnr = self._evaluate_model(test_loader)
-        sensitivity_results = {}
-        
-        # Test sensitivity of each attention layer
-        for layer_name in list(self.mask_manager.attention_masks.keys())[:3]:  # Limit to first 3 for efficiency
-            try:
-                # Temporarily mask one head and measure PSNR drop
-                original_mask = self.mask_manager.attention_masks[layer_name].clone()
-                
-                # Mask the first head temporarily
-                self.mask_manager.attention_masks[layer_name][0] = 0
-                
-                # Measure PSNR with one head masked
-                masked_psnr = self._evaluate_model(test_loader)
-                sensitivity = baseline_psnr - masked_psnr
-                
-                sensitivity_results[layer_name] = {
-                    'type': 'attention',
-                    'sensitivity': sensitivity,
-                    'baseline_psnr': baseline_psnr,
-                    'masked_psnr': masked_psnr
-                }
-                
-                # Restore original mask
-                self.mask_manager.attention_masks[layer_name] = original_mask
-                
-                print(f"  {layer_name}: Sensitivity = {sensitivity:.3f} dB")
-                
-            except Exception as e:
-                print(f"  Warning: Could not analyze {layer_name}: {e}")
-                continue
-        
-        return sensitivity_results
 
 class ComprehensiveEvaluator:
     """Chunk 5: Comprehensive Evaluation Framework"""
@@ -1895,34 +1844,31 @@ def main(json_path='options/train_swinir_light.json'):
     model.init_train()
 
     # ----------------------------------------
-    # CONSERVATIVE Structured Pruning Configuration for Quality Preservation
+    # AGGRESSIVE Structured Pruning Configuration
     # ----------------------------------------
     
     pruning_config = {
-        'target_ratio': 0.40,        # PUBLICATION-TARGET: 40% parameter reduction
-        'num_iterations': 8,         # More gradual iterations for quality preservation
-        'schedule_type': 'progressive', # Progressive schedule for gradual quality-aware pruning
-        'fine_tune_epochs': 25,      # ENHANCED: More epochs for better recovery
-        'patience': 10,              # More patience for convergence
-        'warmup_epochs': 5,          # Add warmup phase
-        'quality_threshold': 0.35    # Maximum allowed PSNR drop per iteration
+        'target_ratio': 0.65,        # AGGRESSIVE: Target 65% parameter reduction
+        'num_iterations': 5,         # More iterations for gradual pruning
+        'schedule_type': 'exponential', # Exponential schedule for aggressive pruning
+        'fine_tune_epochs': 12,      # ENHANCED: More epochs with feature distillation
+        'patience': 5                # More patience for convergence
     }
     
-    # Publication-ready evaluation configuration
+    # More stringent evaluation configuration
     eval_config = {
-        'target_reduction': 0.35,    # Target 35%+ reduction (achievable)
-        'max_psnr_drop': 0.35,       # STRICT: Maximum 0.35 dB drop for publication
-        'min_speedup': 1.05,         # More realistic speedup target
-        'min_memory_reduction': 0.15 # Achievable memory reduction
+        'target_reduction': 0.40,    # Target 40%+ reduction
+        'max_psnr_drop': 0.5,        # Maximum allowed PSNR drop
+        'min_speedup': 1.2,          # Minimum required speedup
+        'min_memory_reduction': 0.2  # Minimum memory reduction
     }
 
     print("="*70)
-    print("PUBLICATION-QUALITY SWINIR STRUCTURED PRUNING")
+    print("SWINIR STRUCTURED PRUNING TRAINING")
     print("="*70)
     print(f"Target parameter reduction: {pruning_config['target_ratio']:.1%}")
     print(f"Number of iterations: {pruning_config['num_iterations']}")
     print(f"Schedule type: {pruning_config['schedule_type']}")
-    print(f"Quality threshold: {pruning_config['quality_threshold']:.2f} dB")
     print("="*70)
 
     # ----------------------------------------
