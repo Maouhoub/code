@@ -422,17 +422,24 @@ class StructuredPruner:
         return actual_reduction
     
     def _count_parameters(self):
-        """Count ACTUAL non-zero parameters in the model"""
+        """Count ACTUAL non-zero parameters in the model (true model size)"""
         network = self.model.netG if hasattr(self.model, 'netG') else self.model
-        total_effective_params = 0
+        
+        total_params = 0
+        effective_params = 0
+        zero_params = 0
         
         for name, param in network.named_parameters():
             if param.requires_grad:
-                # Count only non-zero parameters (actual effective parameters)
-                non_zero_params = torch.count_nonzero(param).item()
-                total_effective_params += non_zero_params
+                param_count = param.numel()
+                non_zero_count = torch.count_nonzero(param).item()
+                zero_count = param_count - non_zero_count
+                
+                total_params += param_count
+                effective_params += non_zero_count
+                zero_params += zero_count
         
-        return total_effective_params
+        return effective_params  # Return only non-zero parameters for size calculation
     
     def _prune_attention_heads(self, layer_name, heads_to_prune):
         """ACTUALLY zero out attention head weights"""
@@ -787,12 +794,16 @@ class IterativePruningPipeline:
         else:
             network = model
             
-        if hasattr(self, 'pruner') and hasattr(self.pruner, '_count_parameters'):
-            # Use the pruner's parameter counting method which accounts for masks
-            return self.pruner._count_parameters()
-        else:
-            # Fallback to standard counting
-            return sum(p.numel() for p in network.parameters() if p.requires_grad)
+        # Always count actual non-zero parameters (true model size)
+        total_params = 0
+        effective_params = 0
+        
+        for param in network.parameters():
+            if param.requires_grad:
+                total_params += param.numel()
+                effective_params += torch.count_nonzero(param).item()
+        
+        return effective_params  # Return actual model size, not theoretical size
     
     def _collect_importance_scores(self, train_loader):
         """Collect REAL importance scores from actual forward passes"""
