@@ -844,10 +844,15 @@ class IterativePruningPipeline:
                 else:
                     # For MLP layers, capture actual output activations
                     if isinstance(output, torch.Tensor):
-                        activation = output.detach().clone()
+                        # Move to CPU immediately to save GPU memory
+                        activation = output.detach().cpu().clone()
                         if layer_name not in captured_activations:
                             captured_activations[layer_name] = []
                         captured_activations[layer_name].append(activation)
+                        
+                        # Clear CUDA cache periodically
+                        if torch.cuda.is_available() and len(captured_activations[layer_name]) % 2 == 0:
+                            torch.cuda.empty_cache()
             return hook_fn
         
         # Register hooks for all attention and MLP layers
@@ -901,10 +906,18 @@ class IterativePruningPipeline:
         
         # Run forward passes to collect activations
         batch_count = 0
+        print(f"\n🔄 Starting activation collection with memory optimization...")
+        if torch.cuda.is_available():
+            print(f"  Initial GPU memory: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+        
         with torch.no_grad():
             for i, batch in enumerate(train_loader):
                 if i >= 5:  # Use more batches for better statistics
                     break
+                    
+                # Clear CUDA cache before each batch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                     
                 try:
                     # Ensure data is on correct device
@@ -914,10 +927,17 @@ class IterativePruningPipeline:
                         # Create dummy input if batch structure is different
                         L_input = torch.randn(2, 3, 64, 64, device=device)
                     
+                    print(f"  Processing batch {i+1}/5 - Input shape: {L_input.shape}")
+                    
                     # Forward pass to capture real activations
                     self.model.feed_data(batch)
                     _ = self.model.netG(L_input)
                     batch_count += 1
+                    
+                    # Clear batch data immediately
+                    del L_input
+                    if 'L' in batch:
+                        del batch['L']
                     
                 except Exception as e:
                     print(f"  Warning: Batch {i} failed: {e}")
@@ -926,6 +946,7 @@ class IterativePruningPipeline:
                         L_input = torch.randn(2, 3, 64, 64, device=device)
                         _ = network(L_input)
                         batch_count += 1
+                        del L_input
                     except Exception as e2:
                         print(f"  Error: Even fallback failed: {e2}")
         
@@ -939,10 +960,16 @@ class IterativePruningPipeline:
         final_activations = {}
         for layer_name, activation_list in captured_activations.items():
             if activation_list:
-                # Average activations across batches
+                # Handle different batch sizes by concatenating and averaging
                 if len(activation_list) > 1:
-                    stacked = torch.stack(activation_list, dim=0)
-                    averaged = torch.mean(stacked, dim=0)
+                    try:
+                        # Try stacking if same shape
+                        stacked = torch.stack(activation_list, dim=0)
+                        averaged = torch.mean(stacked, dim=0)
+                    except RuntimeError:
+                        # If different shapes, concatenate along batch dimension
+                        concatenated = torch.cat(activation_list, dim=0)
+                        averaged = torch.mean(concatenated, dim=0)
                 else:
                     averaged = activation_list[0]
                 
