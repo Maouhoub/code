@@ -186,52 +186,92 @@ class ImportanceMaskManager:
         print(f"Fallback detection found {attention_count} attention + {channel_count} MLP layers")
         return len(self.attention_masks) + len(self.channel_masks) > 0
 
-    def compute_attention_importance(self, attention_weights):
-        """Compute importance scores for attention heads"""
+    def compute_attention_importance(self, attention_weights, layer_module=None):
+        """Compute importance scores for attention heads using multiple metrics"""
         # attention_weights: [batch, heads, seq_len, seq_len]
         if attention_weights is None or len(attention_weights.shape) != 4:
             return None
-            
-        # Compute average attention entropy per head
+        
+        # 1. Activation-based importance (entropy)
         attention_probs = F.softmax(attention_weights, dim=-1)
         entropy = -torch.sum(attention_probs * torch.log(attention_probs + 1e-8), dim=-1)
-        head_importance = torch.mean(entropy, dim=[0, 2])  # Average over batch and sequence
-        return head_importance
+        activation_importance = torch.mean(entropy, dim=[0, 2])
+        
+        # 2. Magnitude-based importance (weight norms)
+        magnitude_importance = activation_importance  # Fallback
+        if layer_module is not None and hasattr(layer_module, 'qkv'):
+            with torch.no_grad():
+                qkv_weight = layer_module.qkv.weight
+                num_heads = getattr(layer_module, 'num_heads', 6)
+                head_dim = qkv_weight.shape[0] // (3 * num_heads)
+                
+                # Compute L2 norm for each head's weights
+                head_norms = []
+                for head_idx in range(num_heads):
+                    start_q = head_idx * head_dim
+                    end_q = (head_idx + 1) * head_dim
+                    start_k = num_heads * head_dim + head_idx * head_dim
+                    end_k = num_heads * head_dim + (head_idx + 1) * head_dim
+                    start_v = 2 * num_heads * head_dim + head_idx * head_dim
+                    end_v = 2 * num_heads * head_dim + (head_idx + 1) * head_dim
+                    
+                    q_norm = torch.norm(qkv_weight[start_q:end_q])
+                    k_norm = torch.norm(qkv_weight[start_k:end_k])
+                    v_norm = torch.norm(qkv_weight[start_v:end_v])
+                    head_norms.append(q_norm + k_norm + v_norm)
+                
+                magnitude_importance = torch.stack(head_norms)
+        
+        # 3. Combined importance (weighted sum)
+        combined_importance = 0.6 * activation_importance + 0.4 * magnitude_importance
+        return combined_importance
 
-    def compute_channel_importance(self, activations):
-        """Compute importance scores for MLP channels"""
+    def compute_channel_importance(self, activations, layer_module=None):
+        """Compute importance scores for MLP channels using multiple metrics"""
         if activations is None:
             return None
-            
-        # Use L2 norm of activations as importance measure
-        if len(activations.shape) == 3:  # [batch, seq_len, channels]
-            importance = torch.norm(activations, dim=[0, 1])
-        elif len(activations.shape) == 2:  # [batch, channels]
-            importance = torch.norm(activations, dim=0)
-        else:
-            importance = torch.norm(activations.view(-1, activations.shape[-1]), dim=0)
         
-        return importance
+        # 1. Activation-based importance (L2 norm)
+        if len(activations.shape) == 3:  # [batch, seq_len, channels]
+            activation_importance = torch.norm(activations, dim=[0, 1])
+        elif len(activations.shape) == 2:  # [batch, channels]
+            activation_importance = torch.norm(activations, dim=0)
+        else:
+            activation_importance = torch.norm(activations.view(-1, activations.shape[-1]), dim=0)
+        
+        # 2. Magnitude-based importance (weight norms)
+        magnitude_importance = activation_importance  # Fallback
+        if layer_module is not None and hasattr(layer_module, 'weight'):
+            with torch.no_grad():
+                # L1 norm of weights for each output channel
+                weight = layer_module.weight
+                magnitude_importance = torch.norm(weight, p=1, dim=1)  # L1 norm per output channel
+        
+        # 3. Combined importance
+        combined_importance = 0.5 * activation_importance + 0.5 * magnitude_importance
+        return combined_importance
 
-    def update_importance_scores(self, activations_dict):
-        """Update importance scores based on current activations"""
+    def update_importance_scores(self, activations_dict, layer_modules_dict=None):
+        """Update importance scores based on current activations and gradients"""
         for name, activations in activations_dict.items():
+            layer_module = layer_modules_dict.get(name) if layer_modules_dict else None
+            
             if name in self.attention_masks:
-                importance = self.compute_attention_importance(activations)
+                importance = self.compute_attention_importance(activations, layer_module)
                 if importance is not None:
                     if name not in self.importance_scores:
-                        self.importance_scores[name] = importance
+                        self.importance_scores[name] = importance.detach()
                     else:
-                        # Exponential moving average
-                        self.importance_scores[name] = 0.9 * self.importance_scores[name] + 0.1 * importance
+                        # Exponential moving average for stable importance estimation
+                        self.importance_scores[name] = 0.7 * self.importance_scores[name] + 0.3 * importance.detach()
                         
             elif name in self.channel_masks:
-                importance = self.compute_channel_importance(activations)
+                importance = self.compute_channel_importance(activations, layer_module)
                 if importance is not None:
                     if name not in self.importance_scores:
-                        self.importance_scores[name] = importance
+                        self.importance_scores[name] = importance.detach()
                     else:
-                        self.importance_scores[name] = 0.9 * self.importance_scores[name] + 0.1 * importance
+                        self.importance_scores[name] = 0.7 * self.importance_scores[name] + 0.3 * importance.detach()
 
 class StructuredPruner:
     """Chunk 2: Structured Pruning Operations"""
@@ -334,8 +374,8 @@ class StructuredPruner:
             hook.remove()
         self.hooks = []
         
-    def create_pruning_plan(self, target_ratio, importance_threshold=0.5):
-        """Create structured pruning plan based on importance scores"""
+    def create_pruning_plan(self, target_ratio, importance_threshold=0.3):
+        """Create AGGRESSIVE structured pruning plan based on importance scores"""
         plan = {
             'attention_heads': {},
             'mlp_channels': {},
@@ -346,36 +386,49 @@ class StructuredPruner:
         total_params = sum(p.numel() for p in self.model.parameters())
         params_to_remove = 0
         
-        # Plan attention head pruning
+        # MORE AGGRESSIVE attention head pruning
         for name, mask in self.mask_manager.attention_masks.items():
             if name in self.mask_manager.importance_scores:
                 importance = self.mask_manager.importance_scores[name]
                 num_heads = len(importance)
                 
-                # Determine heads to prune based on importance threshold
-                normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
-                heads_to_prune = (normalized_importance < importance_threshold).sum().item()
+                # More aggressive pruning: use percentile-based pruning
+                if target_ratio >= 0.6:  # Aggressive mode
+                    # Prune bottom 70% of heads based on importance
+                    _, sorted_indices = torch.sort(importance)
+                    heads_to_prune = int(num_heads * 0.7)
+                else:
+                    # Standard pruning
+                    normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
+                    heads_to_prune = (normalized_importance < importance_threshold).sum().item()
+                
                 heads_to_prune = min(heads_to_prune, num_heads - 1)  # Keep at least one head
                 
                 if heads_to_prune > 0:
                     plan['attention_heads'][name] = heads_to_prune
-                    # Estimate parameter reduction (rough approximation)
-                    params_to_remove += heads_to_prune * (64 * 64)  # Approximate head parameters
+                    params_to_remove += heads_to_prune * (64 * 64)
         
-        # Plan MLP channel pruning
+        # MORE AGGRESSIVE MLP channel pruning  
         for name, mask in self.mask_manager.channel_masks.items():
             if name in self.mask_manager.importance_scores:
                 importance = self.mask_manager.importance_scores[name]
                 num_channels = len(importance)
                 
-                # Determine channels to prune
-                normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
-                channels_to_prune = int(num_channels * target_ratio * normalized_importance.mean().item())
-                channels_to_prune = min(channels_to_prune, num_channels - 16)  # Keep minimum channels
+                # More aggressive channel pruning
+                if target_ratio >= 0.6:  # Aggressive mode
+                    # Prune 60-80% of channels based on target ratio
+                    prune_percentage = min(0.8, target_ratio + 0.2)
+                    channels_to_prune = int(num_channels * prune_percentage)
+                else:
+                    # Standard pruning
+                    normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
+                    channels_to_prune = int(num_channels * target_ratio * 1.5)  # More aggressive multiplier
+                
+                channels_to_prune = min(channels_to_prune, num_channels - 8)  # Keep minimum 8 channels
                 
                 if channels_to_prune > 0:
                     plan['mlp_channels'][name] = channels_to_prune
-                    params_to_remove += channels_to_prune * 256  # Approximate channel parameters
+                    params_to_remove += channels_to_prune * 256
         
         plan['estimated_reduction'] = params_to_remove / total_params
         return plan
@@ -604,13 +657,19 @@ class StructuredPruner:
                     print(f"  ✗ Failed to prune MLP channels in {layer_name}: {e}")
 
 class KnowledgeDistillationTrainer:
-    """Chunk 3: Knowledge Distillation for Fine-tuning"""
+    """Enhanced Knowledge Distillation for Fine-tuning with Feature Distillation"""
     
-    def __init__(self, teacher_model, student_model, temperature=4.0, alpha=0.7):
+    def __init__(self, teacher_model, student_model, temperature=6.0, alpha=0.6):
         self.teacher_model = teacher_model
         self.student_model = student_model
-        self.temperature = temperature
-        self.alpha = alpha
+        self.temperature = temperature  # Higher temperature for better knowledge transfer
+        self.alpha = alpha  # Balanced hard/soft loss
+        
+        # Feature extraction hooks for multi-level distillation
+        self.teacher_features = {}
+        self.student_features = {}
+        self.teacher_hooks = []
+        self.student_hooks = []
         
         # Ensure teacher model is on the same device as student
         if hasattr(student_model, 'netG'):
@@ -628,33 +687,97 @@ class KnowledgeDistillationTrainer:
         self.teacher_model.eval()
         for param in self.teacher_model.parameters():
             param.requires_grad = False
+            
+        # Register feature extraction hooks
+        self._register_feature_hooks()
+    
+    def _register_feature_hooks(self):
+        """Register hooks to extract intermediate features for distillation"""
+        teacher_net = self.teacher_model.netG if hasattr(self.teacher_model, 'netG') else self.teacher_model
+        student_net = self.student_model.netG if hasattr(self.student_model, 'netG') else self.student_model
+        
+        def create_feature_hook(feature_dict, layer_name):
+            def hook_fn(module, input, output):
+                if isinstance(output, torch.Tensor):
+                    feature_dict[layer_name] = output.detach()
+            return hook_fn
+        
+        # Hook middle layers for feature distillation
+        layer_names = ['layers.1', 'layers.2']  # Middle layers of SwinIR
+        
+        for layer_name in layer_names:
+            try:
+                # Teacher hooks
+                teacher_layer = teacher_net
+                for part in layer_name.split('.'):
+                    teacher_layer = getattr(teacher_layer, part)
+                hook = teacher_layer.register_forward_hook(
+                    create_feature_hook(self.teacher_features, layer_name)
+                )
+                self.teacher_hooks.append(hook)
+                
+                # Student hooks
+                student_layer = student_net
+                for part in layer_name.split('.'):
+                    student_layer = getattr(student_layer, part)
+                hook = student_layer.register_forward_hook(
+                    create_feature_hook(self.student_features, layer_name)
+                )
+                self.student_hooks.append(hook)
+                
+            except AttributeError:
+                continue
     
     def distillation_loss(self, student_output, teacher_output, target, hard_loss_fn):
-        """Compute knowledge distillation loss"""
+        """Enhanced knowledge distillation loss with feature distillation"""
         # Hard loss (student vs target)
         hard_loss = hard_loss_fn(student_output, target)
         
-        # Soft loss (student vs teacher)
-        student_soft = F.log_softmax(student_output / self.temperature, dim=1)
-        teacher_soft = F.softmax(teacher_output / self.temperature, dim=1)
-        soft_loss = F.kl_div(student_soft, teacher_soft, reduction='batchmean') * (self.temperature ** 2)
+        # Output-level distillation loss (L2 for images)
+        output_distill_loss = F.mse_loss(student_output, teacher_output)
         
-        # Combined loss
-        total_loss = self.alpha * soft_loss + (1 - self.alpha) * hard_loss
-        return total_loss, hard_loss, soft_loss
+        # Feature-level distillation loss
+        feature_loss = self.feature_distillation_loss(self.student_features, self.teacher_features)
+        
+        # Combined loss with weights
+        total_loss = (
+            (1 - self.alpha) * hard_loss +           # 40% hard loss
+            0.4 * self.alpha * output_distill_loss +  # 24% output distillation 
+            0.6 * self.alpha * feature_loss           # 36% feature distillation
+        )
+        
+        return total_loss, hard_loss, output_distill_loss, feature_loss
     
     def feature_distillation_loss(self, student_features, teacher_features):
-        """Compute feature-level distillation loss"""
+        """Enhanced feature-level distillation loss"""
         total_loss = 0
         count = 0
         
-        for s_feat, t_feat in zip(student_features, teacher_features):
-            if s_feat.shape == t_feat.shape:
+        for layer_name in teacher_features:
+            if layer_name in student_features:
+                t_feat = teacher_features[layer_name]
+                s_feat = student_features[layer_name]
+                
+                # Adaptive feature matching
+                if s_feat.shape != t_feat.shape:
+                    # Simple adaptation: global average pooling
+                    if len(t_feat.shape) > 2:
+                        t_feat = torch.mean(t_feat, dim=list(range(2, len(t_feat.shape))))
+                        s_feat = torch.mean(s_feat, dim=list(range(2, len(s_feat.shape))))
+                
+                # Feature distillation loss
                 loss = F.mse_loss(s_feat, t_feat)
                 total_loss += loss
                 count += 1
         
-        return total_loss / count if count > 0 else torch.tensor(0.0, device=student_features[0].device)
+        return total_loss / count if count > 0 else torch.tensor(0.0, device=list(student_features.values())[0].device if student_features else torch.device('cpu'))
+    
+    def cleanup_hooks(self):
+        """Remove all registered hooks"""
+        for hook in self.teacher_hooks + self.student_hooks:
+            hook.remove()
+        self.teacher_hooks = []
+        self.student_hooks = []
 
 class IterativePruningPipeline:
     """Chunk 4: Complete Iterative Pruning Pipeline"""
@@ -1043,8 +1166,8 @@ class IterativePruningPipeline:
         print(f"Generated fallback importance scores for {len(fallback_activations)} layers")
     
     def _fine_tune_with_kd(self, train_loader, epochs):
-        """Fine-tune model with knowledge distillation"""
-        print(f"Fine-tuning for {epochs} epochs...")
+        """Enhanced fine-tuning with knowledge distillation and feature distillation"""
+        print(f"Enhanced fine-tuning for {epochs} epochs with feature distillation...")
         
         # IMPORTANT: Remove pruning hooks during fine-tuning to avoid in-place operations
         self.pruner.remove_hooks()
@@ -1057,17 +1180,23 @@ class IterativePruningPipeline:
             optimizer = self.model.optimizers['G']
         else:
             print("ERROR: No optimizer found! Creating a new one...")
-            optimizer = torch.optim.Adam(self.model.netG.parameters(), lr=1e-4)
+            optimizer = torch.optim.Adam(self.model.netG.parameters(), lr=2e-4)  # Slightly higher LR
         
-        # Check and adjust learning rate
+        # Enhanced learning rate schedule
         for param_group in optimizer.param_groups:
             if param_group['lr'] < 1e-6:
                 print(f"WARNING: Learning rate too small: {param_group['lr']}")
-                param_group['lr'] = 1e-4
+                param_group['lr'] = 2e-4
                 print(f"Adjusted learning rate to: {param_group['lr']}")
+        
+        # Learning rate scheduler for better convergence
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
         
         for epoch in range(epochs):
             epoch_losses = []
+            hard_losses = []
+            output_distill_losses = []
+            feature_losses = []
             num_batches = 0
             
             for batch in train_loader:
@@ -1081,68 +1210,69 @@ class IterativePruningPipeline:
                 # Feed data to models
                 self.model.feed_data(batch)
                 
-                # Get teacher output (no gradients)
+                # Clear previous features
+                self.kd_trainer.teacher_features.clear()
+                self.kd_trainer.student_features.clear()
+                
+                # Get teacher output (no gradients) with feature extraction
                 with torch.no_grad():
                     self.kd_trainer.teacher_model.feed_data(batch)
                     teacher_output = self.kd_trainer.teacher_model.netG(L_input)
                     teacher_output = teacher_output.detach()
                 
-                # Get student output
+                # Get student output with feature extraction
                 student_output = self.model.netG(L_input)
                 
-                # Compute losses with proper scaling
-                mse_loss = F.mse_loss(student_output, H_target)
-                teacher_student_loss = F.mse_loss(student_output, teacher_output)
-                
-                # Combined loss - emphasize ground truth more
-                total_loss = 0.3 * teacher_student_loss + 0.7 * mse_loss
+                # Enhanced distillation loss computation
+                total_loss, hard_loss, output_distill_loss, feature_loss = self.kd_trainer.distillation_loss(
+                    student_output, teacher_output, H_target, F.mse_loss
+                )
                 
                 # Debug loss values on first batch
                 if epoch == 0 and num_batches == 0:
-                    print(f"  Debug - MSE Loss: {mse_loss.item():.6f}")
-                    print(f"  Debug - KD Loss: {teacher_student_loss.item():.6f}")
+                    print(f"  Debug - Hard Loss: {hard_loss.item():.6f}")
+                    print(f"  Debug - Output Distill Loss: {output_distill_loss.item():.6f}")
+                    print(f"  Debug - Feature Loss: {feature_loss.item():.6f}")
                     print(f"  Debug - Total Loss: {total_loss.item():.6f}")
                     print(f"  Debug - LR: {optimizer.param_groups[0]['lr']}")
-                
-                # Check for reasonable loss values
-                if total_loss.item() < 1e-6:
-                    print(f"WARNING: Loss too small ({total_loss.item():.8f})")
                 
                 # Backward pass
                 optimizer.zero_grad()
                 total_loss.backward()
                 
-                # Check gradients
-                total_grad_norm = 0
-                for param in self.model.netG.parameters():
-                    if param.grad is not None:
-                        total_grad_norm += param.grad.data.norm(2).item() ** 2
-                total_grad_norm = total_grad_norm ** 0.5
-                
-                if epoch == 0 and num_batches == 0:
-                    print(f"  Debug - Gradient Norm: {total_grad_norm:.6f}")
-                
-                if total_grad_norm < 1e-8:
-                    print(f"WARNING: Gradients too small ({total_grad_norm:.8f})")
-                
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(self.model.netG.parameters(), max_norm=1.0)
+                # Enhanced gradient clipping
+                torch.nn.utils.clip_grad_norm_(self.model.netG.parameters(), max_norm=0.5)
                 
                 optimizer.step()
                 
+                # Store losses for reporting
                 epoch_losses.append(total_loss.item())
+                hard_losses.append(hard_loss.item())
+                output_distill_losses.append(output_distill_loss.item())
+                feature_losses.append(feature_loss.item())
                 num_batches += 1
                 
-                if num_batches >= 10:  # Limit batches for efficiency
+                if num_batches >= 15:  # More batches for better training
                     break
             
-            avg_loss = np.mean(epoch_losses) if epoch_losses else 0
-            print(f"  Fine-tuning epoch {epoch + 1}/{epochs}: Loss={avg_loss:.6f} (batches: {num_batches})")
+            # Update learning rate
+            scheduler.step()
             
-            # Early stopping if loss becomes too small
-            if avg_loss < 1e-6:
+            # Report epoch statistics
+            avg_loss = np.mean(epoch_losses) if epoch_losses else 0
+            avg_hard = np.mean(hard_losses) if hard_losses else 0
+            avg_output = np.mean(output_distill_losses) if output_distill_losses else 0
+            avg_feature = np.mean(feature_losses) if feature_losses else 0
+            
+            print(f"  Epoch {epoch + 1}/{epochs}: Total={avg_loss:.6f}, Hard={avg_hard:.6f}, Output={avg_output:.6f}, Feature={avg_feature:.6f}, LR={scheduler.get_last_lr()[0]:.2e}")
+            
+            # Early stopping with more lenient condition
+            if avg_loss < 1e-7:
                 print("WARNING: Loss became too small, stopping early")
                 break
+        
+        # Cleanup feature hooks
+        self.kd_trainer.cleanup_hooks()
         
         # Re-register pruning hooks after fine-tuning
         self.pruner._register_pruning_hooks()
@@ -1593,23 +1723,23 @@ def main(json_path='options/train_swinir_light.json'):
     model.init_train()
 
     # ----------------------------------------
-    # Structured Pruning Configuration
+    # AGGRESSIVE Structured Pruning Configuration
     # ----------------------------------------
     
     pruning_config = {
-        'target_ratio': 0.4,         # Target 40% parameter reduction
-        'num_iterations': 3,         # Number of pruning iterations
-        'schedule_type': 'linear',   # Pruning schedule
-        'fine_tune_epochs': 5,       # Epochs per iteration
-        'patience': 3                # Early stopping patience
+        'target_ratio': 0.65,        # AGGRESSIVE: Target 65% parameter reduction
+        'num_iterations': 5,         # More iterations for gradual pruning
+        'schedule_type': 'exponential', # Exponential schedule for aggressive pruning
+        'fine_tune_epochs': 12,      # ENHANCED: More epochs with feature distillation
+        'patience': 5                # More patience for convergence
     }
     
-    # Evaluation configuration
+    # More stringent evaluation configuration
     eval_config = {
-        'target_reduction': 0.35,    # Minimum required reduction
+        'target_reduction': 0.40,    # Target 40%+ reduction
         'max_psnr_drop': 0.5,        # Maximum allowed PSNR drop
         'min_speedup': 1.2,          # Minimum required speedup
-        'min_memory_reduction': 0.15  # Minimum memory reduction
+        'min_memory_reduction': 0.2  # Minimum memory reduction
     }
 
     print("="*70)
