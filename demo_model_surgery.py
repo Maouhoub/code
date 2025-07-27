@@ -77,11 +77,19 @@ def create_dummy_swinir_light():
                 self.head_dim = dim // num_heads
                 self.qkv = nn.Linear(dim, dim * 3, bias=True)
                 self.proj = nn.Linear(dim, dim, bias=True)
-                self.mlp = nn.Sequential(
-                    nn.Linear(dim, dim * 2),  # fc1
-                    nn.GELU(),
-                    nn.Linear(dim * 2, dim)   # fc2
-                )
+                
+                # Create MLP with fc1 and fc2 structure
+                class MLP(nn.Module):
+                    def __init__(self, dim):
+                        super().__init__()
+                        self.fc1 = nn.Linear(dim, dim * 2)  # expand
+                        self.act = nn.GELU()
+                        self.fc2 = nn.Linear(dim * 2, dim)  # contract
+                    
+                    def forward(self, x):
+                        return self.fc2(self.act(self.fc1(x)))
+                
+                self.mlp = MLP(dim)
             
             def forward(self, x):
                 # Simplified attention
@@ -102,18 +110,33 @@ def create_dummy_swinir_light():
         class DummySwinIR(nn.Module):
             def __init__(self):
                 super().__init__()
+                self.embed_dim = 60
+                self.patch_embed = nn.Linear(3, 60)  # Convert 3-channel input to 60-dim
                 self.layers = nn.ModuleList([
                     DummySwinIRBlock(dim=60, num_heads=6) for _ in range(4)
                 ])
+                self.norm = nn.LayerNorm(60)
+                self.head = nn.Linear(60, 3)  # Back to 3 channels
                 
             def forward(self, x):
                 # Reshape input to sequence format if needed
                 if len(x.shape) == 4:  # B, C, H, W
                     B, C, H, W = x.shape
-                    x = x.view(B, C, H*W).transpose(1, 2)  # B, L, C
+                    x = x.permute(0, 2, 3, 1).reshape(B, H*W, C)  # B, L, C
+                
+                # Embed patches
+                x = self.patch_embed(x)
                 
                 for layer in self.layers:
                     x = layer(x)
+                
+                x = self.norm(x)
+                x = self.head(x)
+                
+                # Reshape back to image format
+                B, L, C = x.shape
+                H = W = int(L ** 0.5)
+                x = x.reshape(B, H, W, C).permute(0, 3, 1, 2)
                 
                 return x
         
