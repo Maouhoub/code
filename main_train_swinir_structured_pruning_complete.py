@@ -25,6 +25,126 @@ from models.select_model import define_Model
 # Import our structured pruning components
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+class PrunedWindowAttention(nn.Module):
+    """
+    Window attention with pruned heads that handles embedding dimension mismatch.
+    This replaces the original WindowAttention after head pruning.
+    """
+    
+    def __init__(self, original_attention, new_qkv, new_num_heads, head_dim, surviving_heads):
+        super().__init__()
+        
+        # Copy all attributes from original attention
+        for name, value in original_attention.__dict__.items():
+            if not name.startswith('_') and name not in ['qkv', 'num_heads', 'head_dim', 'proj']:
+                setattr(self, name, value)
+        
+        # Copy all modules except qkv and proj
+        for name, module in original_attention.named_children():
+            if name not in ['qkv', 'proj']:
+                setattr(self, name, module)
+        
+        # Set new pruned configuration
+        self.qkv = new_qkv
+        self.num_heads = new_num_heads
+        self.head_dim = head_dim
+        self.scale = head_dim ** -0.5
+        self.surviving_heads = surviving_heads
+        
+        # Handle projection layer
+        if hasattr(original_attention, 'proj'):
+            old_proj = original_attention.proj
+            new_embed_dim = new_num_heads * head_dim
+            
+            self.proj = nn.Linear(new_embed_dim, old_proj.out_features, bias=old_proj.bias is not None)
+            self.proj = self.proj.to(new_qkv.weight.device)
+            
+            with torch.no_grad():
+                # Copy projection weights for surviving heads
+                old_proj_weight = old_proj.weight
+                new_proj_weight = torch.zeros(old_proj.out_features, new_embed_dim, device=new_qkv.weight.device)
+                
+                for new_idx, old_head_idx in enumerate(surviving_heads):
+                    old_start = old_head_idx * head_dim
+                    old_end = old_start + head_dim
+                    new_start = new_idx * head_dim
+                    new_end = new_start + head_dim
+                    
+                    if (old_end <= old_proj_weight.shape[1] and 
+                        new_end <= new_proj_weight.shape[1] and 
+                        old_head_idx < old_proj_weight.shape[1] // head_dim):
+                        new_proj_weight[:, new_start:new_end] = old_proj_weight[:, old_start:old_end]
+                
+                self.proj.weight.copy_(new_proj_weight)
+                
+                if old_proj.bias is not None:
+                    self.proj.bias.copy_(old_proj.bias)
+        
+        # Handle relative position bias table
+        if hasattr(original_attention, 'relative_position_bias_table'):
+            old_bias_table = original_attention.relative_position_bias_table
+            old_num_heads = old_bias_table.shape[-1] if len(old_bias_table.shape) > 1 else len(surviving_heads)
+            
+            if old_bias_table.shape[-1] >= max(surviving_heads) + 1:
+                # Create new bias table with reduced heads
+                new_bias_table = torch.zeros(
+                    old_bias_table.shape[0], 
+                    new_num_heads, 
+                    device=new_qkv.weight.device
+                )
+                
+                with torch.no_grad():
+                    for new_idx, old_head_idx in enumerate(surviving_heads):
+                        if old_head_idx < old_bias_table.shape[-1]:
+                            new_bias_table[:, new_idx] = old_bias_table[:, old_head_idx]
+                
+                self.relative_position_bias_table = nn.Parameter(new_bias_table)
+            else:
+                # Keep original bias table if dimensions don't match expected pruning
+                self.relative_position_bias_table = original_attention.relative_position_bias_table
+    
+    def forward(self, x, mask=None):
+        """
+        Forward pass that handles the dimension mismatch properly.
+        Args:
+            x: input features with shape of (num_windows*B, N, C)
+            mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
+        """
+        B_, N, C = x.shape
+        
+        # Get QKV with pruned dimensions
+        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
+
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
+
+        # Handle relative position bias
+        if hasattr(self, 'relative_position_bias_table') and hasattr(self, 'relative_position_index'):
+            relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+                self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+            relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+            attn = attn + relative_position_bias.unsqueeze(0)
+
+        if mask is not None:
+            nW = mask.shape[0]
+            attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, N, N)
+            attn = self.softmax(attn)
+        else:
+            attn = self.softmax(attn)
+
+        if hasattr(self, 'attn_drop'):
+            attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B_, N, self.num_heads * self.head_dim)
+        x = self.proj(x)
+        
+        if hasattr(self, 'proj_drop'):
+            x = self.proj_drop(x)
+        
+        return x
+
 '''
 # --------------------------------------------
 # Complete Structured Pruning Training for SwinIR
@@ -842,6 +962,9 @@ class ModelSurgery:
         head_dim = total_dim // (3 * old_num_heads)
         new_total_dim = 3 * new_num_heads * head_dim
         
+        # IMPORTANT: Keep the same input embedding dimension for compatibility
+        # We'll modify the attention to work with the reduced QKV output
+        
         # Create new QKV layer with reduced dimensions
         new_qkv = nn.Linear(old_qkv.in_features, new_total_dim, bias=old_qkv.bias is not None)
         new_qkv = new_qkv.to(self.device)
@@ -883,40 +1006,8 @@ class ModelSurgery:
                 
                 new_qkv.bias.copy_(new_bias)
         
-        # Create new attention module
-        new_attention = copy.deepcopy(old_attention)
-        new_attention.qkv = new_qkv
-        new_attention.num_heads = new_num_heads
-        new_attention.head_dim = head_dim
-        
-        # Update projection layer if needed
-        if hasattr(old_attention, 'proj') and hasattr(old_attention.proj, 'weight'):
-            old_proj = old_attention.proj
-            new_embed_dim = new_num_heads * head_dim
-            
-            new_proj = nn.Linear(new_embed_dim, old_proj.out_features, bias=old_proj.bias is not None)
-            new_proj = new_proj.to(self.device)
-            
-            with torch.no_grad():
-                # Copy projection weights for surviving heads
-                old_proj_weight = old_proj.weight
-                new_proj_weight = torch.zeros(old_proj.out_features, new_embed_dim, device=self.device)
-                
-                for new_idx, old_head_idx in enumerate(surviving_heads):
-                    old_start = old_head_idx * head_dim
-                    old_end = old_start + head_dim
-                    new_start = new_idx * head_dim
-                    new_end = new_start + head_dim
-                    
-                    if old_end <= old_proj_weight.shape[1] and new_end <= new_proj_weight.shape[1]:
-                        new_proj_weight[:, new_start:new_end] = old_proj_weight[:, old_start:old_end]
-                
-                new_proj.weight.copy_(new_proj_weight)
-                
-                if old_proj.bias is not None:
-                    new_proj.bias.copy_(old_proj.bias)
-            
-            new_attention.proj = new_proj
+        # Create new attention module that properly handles dimension mismatch
+        new_attention = PrunedWindowAttention(old_attention, new_qkv, new_num_heads, head_dim, surviving_heads)
         
         return new_attention
     
