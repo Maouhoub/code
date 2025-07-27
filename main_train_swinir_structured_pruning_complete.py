@@ -2270,7 +2270,7 @@ class ComprehensiveEvaluator:
         print(f"\nOverall Result: {overall_result}")
 
 
-def main(json_path='options/train_swinir_light.json'):
+def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     '''
     # ----------------------------------------
     # Complete Structured Pruning Training for SwinIR
