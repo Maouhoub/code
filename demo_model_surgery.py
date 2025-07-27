@@ -93,7 +93,7 @@ def create_dummy_swinir_light():
                         attn = (q @ k.transpose(-2, -1)) * (self.head_dim ** -0.5)
                         attn = attn.softmax(dim=-1)
                         
-                        x = (attn @ v).transpose(1, 2).reshape(B, L, C)
+                        x = (attn @ v).transpose(1, 2).reshape(B, L, self.num_heads * self.head_dim)
                         return self.proj(x)
                 
                 self.attn = WindowAttention(dim, num_heads)
