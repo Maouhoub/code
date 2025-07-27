@@ -1012,125 +1012,147 @@ class ModelSurgery:
         return new_attention
     
     def _rebuild_mlp_layers(self):
-        """Physically rebuild MLP layers with reduced channels"""
+        """Physically rebuild MLP layers with reduced channels - COORDINATED approach"""
         rebuilt_layers = {}
         
         network = self.model.netG if hasattr(self.model, 'netG') else self.model
         
-        for layer_name, mask in self.mask_manager.channel_masks.items():
-            if not mask.all():  # If some channels are pruned
+        # Group MLP layers by block for coordinated surgery
+        mlp_blocks = {}
+        for layer_name in self.mask_manager.channel_masks.keys():
+            if 'mlp.' in layer_name:
+                # Extract block path (everything before .mlp.fc1/fc2)
+                block_path = layer_name.split('.mlp.')[0]
+                if block_path not in mlp_blocks:
+                    mlp_blocks[block_path] = {}
+                
+                if '.fc1' in layer_name:
+                    mlp_blocks[block_path]['fc1'] = layer_name
+                elif '.fc2' in layer_name:
+                    mlp_blocks[block_path]['fc2'] = layer_name
+        
+        # Process each MLP block as a coordinated unit
+        for block_path, fc_layers in mlp_blocks.items():
+            if 'fc1' in fc_layers and 'fc2' in fc_layers:
                 try:
-                    # Navigate to the MLP layer
-                    current_module = network
-                    parts = layer_name.split('.')
-                    for part in parts[:-1]:
-                        current_module = getattr(current_module, part)
+                    fc1_name = fc_layers['fc1']
+                    fc2_name = fc_layers['fc2']
                     
-                    old_layer = getattr(current_module, parts[-1])
+                    # Get masks for both layers
+                    fc1_mask = self.mask_manager.channel_masks[fc1_name]
+                    fc2_mask = self.mask_manager.channel_masks[fc2_name]
                     
-                    # Get surviving channels
-                    surviving_channels = mask.nonzero().squeeze().tolist()
-                    if not isinstance(surviving_channels, list):
-                        surviving_channels = [surviving_channels] if len([surviving_channels]) > 0 else []
+                    # CRITICAL: Use the SAME channel selection for both layers
+                    # to maintain dimensional consistency
+                    fc1_surviving = fc1_mask.nonzero().squeeze().tolist()
+                    if not isinstance(fc1_surviving, list):
+                        fc1_surviving = [fc1_surviving] if len([fc1_surviving]) > 0 else []
                     
-                    if len(surviving_channels) > 0:
-                        # Create new MLP layer with reduced channels
-                        new_layer = self._create_reduced_mlp(old_layer, surviving_channels, layer_name)
+                    # For fc2, we use the same surviving channels as fc1's output
+                    # This ensures fc1 output dimension = fc2 input dimension
+                    
+                    if len(fc1_surviving) > 0:
+                        # Rebuild fc1 (output channel pruning)
+                        fc1_layer = self._get_layer_by_name(network, fc1_name)
+                        new_fc1 = self._create_reduced_fc1(fc1_layer, fc1_surviving)
+                        self._set_layer_by_name(network, fc1_name, new_fc1)
                         
-                        # Replace the old module
-                        setattr(current_module, parts[-1], new_layer)
+                        # Rebuild fc2 (input channel pruning, matching fc1's output)
+                        fc2_layer = self._get_layer_by_name(network, fc2_name)
+                        new_fc2 = self._create_reduced_fc2(fc2_layer, fc1_surviving)
+                        self._set_layer_by_name(network, fc2_name, new_fc2)
                         
-                        rebuilt_layers[layer_name] = {
-                            'old_channels': len(mask),
-                            'new_channels': len(surviving_channels),
-                            'reduction': 1 - len(surviving_channels) / len(mask)
+                        rebuilt_layers[fc1_name] = {
+                            'old_channels': len(fc1_mask),
+                            'new_channels': len(fc1_surviving),
+                            'reduction': 1 - len(fc1_surviving) / len(fc1_mask)
                         }
                         
-                        print(f"  ✅ Rebuilt MLP: {layer_name} ({len(mask)} → {len(surviving_channels)} channels)")
+                        rebuilt_layers[fc2_name] = {
+                            'old_channels': len(fc2_mask),
+                            'new_channels': len(fc1_surviving),  # Must match fc1 output
+                            'reduction': 1 - len(fc1_surviving) / len(fc2_mask)
+                        }
+                        
+                        print(f"  ✅ Rebuilt MLP: {fc1_name} ({len(fc1_mask)} → {len(fc1_surviving)} channels)")
+                        print(f"  ✅ Rebuilt MLP: {fc2_name} ({len(fc2_mask)} → {len(fc1_surviving)} channels)")
                 
                 except Exception as e:
-                    print(f"  ❌ Failed to rebuild MLP {layer_name}: {e}")
+                    print(f"  ❌ Failed to rebuild MLP block {block_path}: {e}")
         
         return rebuilt_layers
     
-    def _create_reduced_mlp(self, old_layer, surviving_channels, layer_name):
-        """Create new MLP layer with only surviving channels"""
-        if not hasattr(old_layer, 'weight'):
-            return old_layer
-        
+    def _get_layer_by_name(self, network, layer_name):
+        """Get layer by hierarchical name"""
+        current_module = network
+        parts = layer_name.split('.')
+        for part in parts:
+            current_module = getattr(current_module, part)
+        return current_module
+    
+    def _set_layer_by_name(self, network, layer_name, new_layer):
+        """Set layer by hierarchical name"""
+        current_module = network
+        parts = layer_name.split('.')
+        for part in parts[:-1]:
+            current_module = getattr(current_module, part)
+        setattr(current_module, parts[-1], new_layer)
+    
+    def _create_reduced_fc1(self, old_layer, surviving_channels):
+        """Create reduced fc1 layer (output channel pruning)"""
         old_weight = old_layer.weight
         old_in_features = old_layer.in_features
         old_out_features = old_layer.out_features
         
-        # Determine if this is fc1 (expand) or fc2 (contract)
-        if 'fc1' in layer_name:
-            # FC1: prune output channels (intermediate dimension)
-            new_out_features = len(surviving_channels)
-            new_in_features = old_in_features
-            
-            new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
-            new_layer = new_layer.to(self.device)
-            
-            with torch.no_grad():
-                # Copy weights for surviving output channels
-                new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
-                for new_idx, old_idx in enumerate(surviving_channels):
-                    if old_idx < old_out_features:
-                        new_weight[new_idx] = old_weight[old_idx]
-                
-                new_layer.weight.copy_(new_weight)
-                
-                # Copy bias for surviving channels
-                if old_layer.bias is not None:
-                    new_bias = torch.zeros(new_out_features, device=self.device)
-                    for new_idx, old_idx in enumerate(surviving_channels):
-                        if old_idx < old_layer.bias.shape[0]:
-                            new_bias[new_idx] = old_layer.bias[old_idx]
-                    new_layer.bias.copy_(new_bias)
+        new_out_features = len(surviving_channels)
+        new_in_features = old_in_features
         
-        elif 'fc2' in layer_name:
-            # FC2: prune input channels (intermediate dimension)
-            new_in_features = len(surviving_channels)
-            new_out_features = old_out_features
-            
-            new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
-            new_layer = new_layer.to(self.device)
-            
-            with torch.no_grad():
-                # Copy weights for surviving input channels
-                new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
-                for new_idx, old_idx in enumerate(surviving_channels):
-                    if old_idx < old_in_features:
-                        new_weight[:, new_idx] = old_weight[:, old_idx]
-                
-                new_layer.weight.copy_(new_weight)
-                
-                # Copy full bias (output dimension unchanged)
-                if old_layer.bias is not None:
-                    new_layer.bias.copy_(old_layer.bias)
+        new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
+        new_layer = new_layer.to(self.device)
         
-        else:
-            # Generic linear layer: default to output channel pruning
-            new_out_features = len(surviving_channels)
-            new_in_features = old_in_features
+        with torch.no_grad():
+            # Copy weights for surviving output channels
+            new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
+            for new_idx, old_idx in enumerate(surviving_channels):
+                if old_idx < old_out_features:
+                    new_weight[new_idx] = old_weight[old_idx]
             
-            new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
-            new_layer = new_layer.to(self.device)
+            new_layer.weight.copy_(new_weight)
             
-            with torch.no_grad():
-                new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
+            # Copy bias for surviving channels
+            if old_layer.bias is not None:
+                new_bias = torch.zeros(new_out_features, device=self.device)
                 for new_idx, old_idx in enumerate(surviving_channels):
-                    if old_idx < old_out_features:
-                        new_weight[new_idx] = old_weight[old_idx]
-                
-                new_layer.weight.copy_(new_weight)
-                
-                if old_layer.bias is not None:
-                    new_bias = torch.zeros(new_out_features, device=self.device)
-                    for new_idx, old_idx in enumerate(surviving_channels):
-                        if old_idx < old_layer.bias.shape[0]:
-                            new_bias[new_idx] = old_layer.bias[old_idx]
-                    new_layer.bias.copy_(new_bias)
+                    if old_idx < old_layer.bias.shape[0]:
+                        new_bias[new_idx] = old_layer.bias[old_idx]
+                new_layer.bias.copy_(new_bias)
+        
+        return new_layer
+    
+    def _create_reduced_fc2(self, old_layer, surviving_channels):
+        """Create reduced fc2 layer (input channel pruning, matching fc1 output)"""
+        old_weight = old_layer.weight
+        old_in_features = old_layer.in_features
+        old_out_features = old_layer.out_features
+        
+        new_in_features = len(surviving_channels)  # Must match fc1 output
+        new_out_features = old_out_features  # Keep same output dimension
+        
+        new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
+        new_layer = new_layer.to(self.device)
+        
+        with torch.no_grad():
+            # Copy weights for surviving input channels
+            new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
+            for new_idx, old_idx in enumerate(surviving_channels):
+                if old_idx < old_in_features:
+                    new_weight[:, new_idx] = old_weight[:, old_idx]
+            
+            new_layer.weight.copy_(new_weight)
+            
+            # Copy full bias (output dimension unchanged)
+            if old_layer.bias is not None:
+                new_layer.bias.copy_(old_layer.bias)
         
         return new_layer
     
