@@ -75,8 +75,28 @@ def create_dummy_swinir_light():
                 super().__init__()
                 self.num_heads = num_heads
                 self.head_dim = dim // num_heads
-                self.qkv = nn.Linear(dim, dim * 3, bias=True)
-                self.proj = nn.Linear(dim, dim, bias=True)
+                
+                # Create attention with proper naming for detection
+                class WindowAttention(nn.Module):
+                    def __init__(self, dim, num_heads):
+                        super().__init__()
+                        self.num_heads = num_heads
+                        self.head_dim = dim // num_heads
+                        self.qkv = nn.Linear(dim, dim * 3, bias=True)
+                        self.proj = nn.Linear(dim, dim, bias=True)
+                    
+                    def forward(self, x):
+                        B, L, C = x.shape
+                        qkv = self.qkv(x).reshape(B, L, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+                        q, k, v = qkv[0], qkv[1], qkv[2]
+                        
+                        attn = (q @ k.transpose(-2, -1)) * (self.head_dim ** -0.5)
+                        attn = attn.softmax(dim=-1)
+                        
+                        x = (attn @ v).transpose(1, 2).reshape(B, L, C)
+                        return self.proj(x)
+                
+                self.attn = WindowAttention(dim, num_heads)
                 
                 # Create MLP with fc1 and fc2 structure
                 class MLP(nn.Module):
@@ -92,18 +112,10 @@ def create_dummy_swinir_light():
                 self.mlp = MLP(dim)
             
             def forward(self, x):
-                # Simplified attention
-                B, L, C = x.shape
-                qkv = self.qkv(x).reshape(B, L, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-                q, k, v = qkv[0], qkv[1], qkv[2]
+                # Attention block
+                x = x + self.attn(x)
                 
-                attn = (q @ k.transpose(-2, -1)) * (self.head_dim ** -0.5)
-                attn = attn.softmax(dim=-1)
-                
-                x = (attn @ v).transpose(1, 2).reshape(B, L, C)
-                x = self.proj(x)
-                
-                # MLP
+                # MLP block
                 x = x + self.mlp(x)
                 return x
         
@@ -140,9 +152,21 @@ def create_dummy_swinir_light():
                 
                 return x
         
-        class DummyModel:
+        class DummyModel(nn.Module):
             def __init__(self):
+                super().__init__()
                 self.netG = DummySwinIR()
+            
+            def parameters(self, recurse=True):
+                """Forward parameters() calls to netG"""
+                return self.netG.parameters(recurse=recurse)
+            
+            def named_parameters(self, prefix='', recurse=True):
+                """Forward named_parameters() calls to netG"""
+                return self.netG.named_parameters(prefix=prefix, recurse=recurse)
+            
+            def forward(self, x):
+                return self.netG(x)
         
         return DummyModel()
 
