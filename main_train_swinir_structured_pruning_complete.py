@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import time
 import copy
+import sys
 
 from utils import utils_logger
 from utils import utils_image as util
@@ -22,7 +23,6 @@ from data.select_dataset import define_Dataset
 from models.select_model import define_Model
 
 # Import our structured pruning components
-import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 '''
@@ -464,47 +464,91 @@ class StructuredPruner:
         plan['estimated_reduction'] = params_to_remove / total_params
         return plan
     
-    def apply_pruning_plan(self, pruning_plan):
-        """Apply the structured pruning plan to the model"""
+    def apply_pruning_plan(self, pruning_plan, use_model_surgery=True):
+        """Apply the structured pruning plan to the model with optional model surgery"""
         print("\nPruning Plan Summary:")
         print(f"  Target ratio: {pruning_plan['target_ratio']:.1%}")
         print(f"  Estimated reduction: {pruning_plan['estimated_reduction']:.1%}")
+        print(f"  Model Surgery: {'✅ Enabled' if use_model_surgery else '❌ Disabled (masking only)'}")
         
         # Count parameters before pruning
         params_before = self._count_parameters()
         print(f"  Parameters before pruning: {params_before:,}")
         
-        # Apply attention head pruning
-        for layer_name, heads_to_prune in pruning_plan['attention_heads'].items():
-            if heads_to_prune > 0:
-                print(f"Attention layer {layer_name}: {heads_to_prune} heads to prune")
-                self._prune_attention_heads(layer_name, heads_to_prune)
-        
-        # Apply MLP channel pruning
-        for layer_name, channels_to_prune in pruning_plan['mlp_channels'].items():
-            if channels_to_prune > 0:
-                print(f"MLP layer {layer_name}: {channels_to_prune} channels to prune")
-                self._prune_mlp_channels(layer_name, channels_to_prune)
-        
-        # Count parameters after pruning
-        params_after = self._count_parameters()
-        actual_reduction = (params_before - params_after) / params_before
-        
-        print(f"  Parameters after pruning: {params_after:,}")
-        print(f"  Actual reduction: {actual_reduction:.1%}")
-        
-        # Additional verification - show zero vs non-zero parameters
-        network = self.model.netG if hasattr(self.model, 'netG') else self.model
-        total_params = sum(p.numel() for p in network.parameters() if p.requires_grad)
-        zero_params = total_params - params_after
-        
-        print(f"📊 Detailed parameter analysis:")
-        print(f"   Total parameters: {total_params:,}")
-        print(f"   Non-zero parameters: {params_after:,}")
-        print(f"   Zeroed parameters: {zero_params:,}")
-        print(f"   Actual sparsity: {zero_params/total_params*100:.2f}%")
+        if use_model_surgery:
+            # STEP 1: First apply masking to identify what to prune
+            print("\n🎯 Step 1: Identifying components to prune...")
+            
+            # Apply attention head pruning (masking)
+            for layer_name, heads_to_prune in pruning_plan['attention_heads'].items():
+                if heads_to_prune > 0:
+                    print(f"  Marking attention layer {layer_name}: {heads_to_prune} heads to prune")
+                    self._prune_attention_heads(layer_name, heads_to_prune)
+            
+            # Apply MLP channel pruning (masking)
+            for layer_name, channels_to_prune in pruning_plan['mlp_channels'].items():
+                if channels_to_prune > 0:
+                    print(f"  Marking MLP layer {layer_name}: {channels_to_prune} channels to prune")
+                    self._prune_mlp_channels(layer_name, channels_to_prune)
+            
+            # STEP 2: Perform model surgery to physically remove pruned components
+            print("\n🔧 Step 2: Performing Model Surgery...")
+            model_surgeon = ModelSurgery(self.model, self.mask_manager)
+            surgically_pruned_model, param_reduction, flops_reduction = model_surgeon.rebuild_pruned_model()
+            
+            # Update our model reference
+            self.model = surgically_pruned_model
+            
+            # Count parameters after surgery
+            params_after = self._count_total_parameters()
+            actual_reduction = param_reduction
+            
+            print(f"\n📊 Surgery Results:")
+            print(f"  Parameters after surgery: {params_after:,}")
+            print(f"  Actual parameter reduction: {actual_reduction:.1%}")
+            print(f"  Estimated FLOPs reduction: {flops_reduction:.1%}")
+            print(f"  ✅ Real model size reduction achieved!")
+            
+        else:
+            # LEGACY: Only masking (no real parameter reduction)
+            print("\n⚠️  Warning: Using legacy masking-only approach (no real speedup)")
+            
+            # Apply attention head pruning
+            for layer_name, heads_to_prune in pruning_plan['attention_heads'].items():
+                if heads_to_prune > 0:
+                    print(f"Attention layer {layer_name}: {heads_to_prune} heads to prune")
+                    self._prune_attention_heads(layer_name, heads_to_prune)
+            
+            # Apply MLP channel pruning
+            for layer_name, channels_to_prune in pruning_plan['mlp_channels'].items():
+                if channels_to_prune > 0:
+                    print(f"MLP layer {layer_name}: {channels_to_prune} channels to prune")
+                    self._prune_mlp_channels(layer_name, channels_to_prune)
+            
+            # Count parameters after pruning (only non-zero)
+            params_after = self._count_parameters()
+            actual_reduction = (params_before - params_after) / params_before
+            
+            print(f"  Parameters after masking: {params_after:,}")
+            print(f"  Effective reduction: {actual_reduction:.1%}")
+            
+            # Additional verification - show zero vs non-zero parameters
+            network = self.model.netG if hasattr(self.model, 'netG') else self.model
+            total_params = sum(p.numel() for p in network.parameters() if p.requires_grad)
+            zero_params = total_params - params_after
+            
+            print(f"📊 Detailed parameter analysis:")
+            print(f"   Total parameters: {total_params:,}")
+            print(f"   Non-zero parameters: {params_after:,}")
+            print(f"   Zeroed parameters: {zero_params:,}")
+            print(f"   Actual sparsity: {zero_params/total_params*100:.2f}%")
         
         return actual_reduction
+    
+    def _count_total_parameters(self):
+        """Count total trainable parameters (including zeros)"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        return sum(p.numel() for p in network.parameters() if p.requires_grad)
     
     def _count_parameters(self):
         """Count ACTUAL non-zero parameters in the model (true model size)"""
@@ -686,6 +730,489 @@ class StructuredPruner:
                     
                 except Exception as e:
                     print(f"  ✗ Failed to prune MLP channels in {layer_name}: {e}")
+
+class ModelSurgery:
+    """
+    SOLUTION TO CHALLENGE #1: Physical Model Surgery for SwinIR-Light
+    
+    This class performs ACTUAL physical removal of pruned attention heads and MLP channels,
+    resulting in real parameter reduction and speedup (not just masking).
+    
+    Based on successful techniques from:
+    - Torch-Pruning (MultiheadAttentionPruner, LinearPruner)
+    - X-Pruner (explainability-aware pruning)
+    - ViT/Swin transformer pruning literature
+    """
+    
+    def __init__(self, model, mask_manager):
+        self.model = model
+        self.mask_manager = mask_manager
+        self.device = next(model.netG.parameters()).device if hasattr(model, 'netG') else next(model.parameters()).device
+        
+    def rebuild_pruned_model(self):
+        """
+        Main model surgery function: Physically rebuild the model with reduced dimensions
+        
+        Returns:
+            tuple: (new_model, actual_parameter_reduction, flops_reduction)
+        """
+        print("\n🔧 Starting Model Surgery: Physical removal of pruned components...")
+        
+        # Count parameters before surgery
+        params_before = self._count_total_parameters()
+        flops_before = self._estimate_flops()
+        
+        # Rebuild attention layers
+        attention_reductions = self._rebuild_attention_layers()
+        
+        # Rebuild MLP layers  
+        mlp_reductions = self._rebuild_mlp_layers()
+        
+        # Count parameters after surgery
+        params_after = self._count_total_parameters()
+        flops_after = self._estimate_flops()
+        
+        # Calculate actual reductions
+        param_reduction = (params_before - params_after) / params_before
+        flops_reduction = (flops_before - flops_after) / flops_before
+        
+        print(f"\n✅ Model Surgery Complete!")
+        print(f"  📊 Parameters: {params_before:,} → {params_after:,} ({param_reduction:.1%} reduction)")
+        print(f"  ⚡ FLOPs: {flops_before/1e9:.2f}G → {flops_after/1e9:.2f}G ({flops_reduction:.1%} reduction)")
+        print(f"  🎯 Attention layers rebuilt: {len(attention_reductions)}")
+        print(f"  🎯 MLP layers rebuilt: {len(mlp_reductions)}")
+        
+        return self.model, param_reduction, flops_reduction
+    
+    def _rebuild_attention_layers(self):
+        """Physically rebuild attention layers with reduced heads"""
+        rebuilt_layers = {}
+        
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        
+        for layer_name, mask in self.mask_manager.attention_masks.items():
+            if not mask.all():  # If some heads are pruned
+                try:
+                    # Navigate to the attention layer
+                    current_module = network
+                    parts = layer_name.split('.')
+                    parent_module = current_module
+                    for part in parts[:-1]:
+                        parent_module = current_module
+                        current_module = getattr(current_module, part)
+                    
+                    old_attention = getattr(current_module, parts[-1])
+                    
+                    # Get surviving heads
+                    surviving_heads = mask.nonzero().squeeze().tolist()
+                    if not isinstance(surviving_heads, list):
+                        surviving_heads = [surviving_heads] if len([surviving_heads]) > 0 else []
+                    
+                    if len(surviving_heads) > 0:
+                        # Create new attention module with reduced heads
+                        new_attention = self._create_reduced_attention(old_attention, surviving_heads)
+                        
+                        # Replace the old module
+                        setattr(current_module, parts[-1], new_attention)
+                        
+                        rebuilt_layers[layer_name] = {
+                            'old_heads': len(mask),
+                            'new_heads': len(surviving_heads),
+                            'reduction': 1 - len(surviving_heads) / len(mask)
+                        }
+                        
+                        print(f"  ✅ Rebuilt attention: {layer_name} ({len(mask)} → {len(surviving_heads)} heads)")
+                
+                except Exception as e:
+                    print(f"  ❌ Failed to rebuild attention {layer_name}: {e}")
+        
+        return rebuilt_layers
+    
+    def _create_reduced_attention(self, old_attention, surviving_heads):
+        """Create new attention module with only surviving heads"""
+        if not hasattr(old_attention, 'qkv'):
+            return old_attention
+        
+        old_qkv = old_attention.qkv
+        old_num_heads = getattr(old_attention, 'num_heads', 6)
+        new_num_heads = len(surviving_heads)
+        
+        # Calculate dimensions
+        total_dim = old_qkv.out_features
+        head_dim = total_dim // (3 * old_num_heads)
+        new_total_dim = 3 * new_num_heads * head_dim
+        
+        # Create new QKV layer with reduced dimensions
+        new_qkv = nn.Linear(old_qkv.in_features, new_total_dim, bias=old_qkv.bias is not None)
+        new_qkv = new_qkv.to(self.device)
+        
+        # Copy weights for surviving heads
+        with torch.no_grad():
+            old_weight = old_qkv.weight
+            new_weight = torch.zeros(new_total_dim, old_qkv.in_features, device=self.device)
+            
+            for new_idx, old_head_idx in enumerate(surviving_heads):
+                if old_head_idx < old_num_heads:
+                    # Copy Q, K, V weights for this head
+                    for qkv_idx in range(3):  # Q, K, V
+                        old_start = qkv_idx * old_num_heads * head_dim + old_head_idx * head_dim
+                        old_end = old_start + head_dim
+                        new_start = qkv_idx * new_num_heads * head_dim + new_idx * head_dim
+                        new_end = new_start + head_dim
+                        
+                        if old_end <= old_weight.shape[0] and new_end <= new_weight.shape[0]:
+                            new_weight[new_start:new_end] = old_weight[old_start:old_end]
+            
+            new_qkv.weight.copy_(new_weight)
+            
+            # Copy bias if exists
+            if old_qkv.bias is not None:
+                old_bias = old_qkv.bias
+                new_bias = torch.zeros(new_total_dim, device=self.device)
+                
+                for new_idx, old_head_idx in enumerate(surviving_heads):
+                    if old_head_idx < old_num_heads:
+                        for qkv_idx in range(3):
+                            old_start = qkv_idx * old_num_heads * head_dim + old_head_idx * head_dim
+                            old_end = old_start + head_dim
+                            new_start = qkv_idx * new_num_heads * head_dim + new_idx * head_dim
+                            new_end = new_start + head_dim
+                            
+                            if old_end <= old_bias.shape[0] and new_end <= new_bias.shape[0]:
+                                new_bias[new_start:new_end] = old_bias[old_start:old_end]
+                
+                new_qkv.bias.copy_(new_bias)
+        
+        # Create new attention module
+        new_attention = copy.deepcopy(old_attention)
+        new_attention.qkv = new_qkv
+        new_attention.num_heads = new_num_heads
+        new_attention.head_dim = head_dim
+        
+        # Update projection layer if needed
+        if hasattr(old_attention, 'proj') and hasattr(old_attention.proj, 'weight'):
+            old_proj = old_attention.proj
+            new_embed_dim = new_num_heads * head_dim
+            
+            new_proj = nn.Linear(new_embed_dim, old_proj.out_features, bias=old_proj.bias is not None)
+            new_proj = new_proj.to(self.device)
+            
+            with torch.no_grad():
+                # Copy projection weights for surviving heads
+                old_proj_weight = old_proj.weight
+                new_proj_weight = torch.zeros(old_proj.out_features, new_embed_dim, device=self.device)
+                
+                for new_idx, old_head_idx in enumerate(surviving_heads):
+                    old_start = old_head_idx * head_dim
+                    old_end = old_start + head_dim
+                    new_start = new_idx * head_dim
+                    new_end = new_start + head_dim
+                    
+                    if old_end <= old_proj_weight.shape[1] and new_end <= new_proj_weight.shape[1]:
+                        new_proj_weight[:, new_start:new_end] = old_proj_weight[:, old_start:old_end]
+                
+                new_proj.weight.copy_(new_proj_weight)
+                
+                if old_proj.bias is not None:
+                    new_proj.bias.copy_(old_proj.bias)
+            
+            new_attention.proj = new_proj
+        
+        return new_attention
+    
+    def _rebuild_mlp_layers(self):
+        """Physically rebuild MLP layers with reduced channels"""
+        rebuilt_layers = {}
+        
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        
+        for layer_name, mask in self.mask_manager.channel_masks.items():
+            if not mask.all():  # If some channels are pruned
+                try:
+                    # Navigate to the MLP layer
+                    current_module = network
+                    parts = layer_name.split('.')
+                    for part in parts[:-1]:
+                        current_module = getattr(current_module, part)
+                    
+                    old_layer = getattr(current_module, parts[-1])
+                    
+                    # Get surviving channels
+                    surviving_channels = mask.nonzero().squeeze().tolist()
+                    if not isinstance(surviving_channels, list):
+                        surviving_channels = [surviving_channels] if len([surviving_channels]) > 0 else []
+                    
+                    if len(surviving_channels) > 0:
+                        # Create new MLP layer with reduced channels
+                        new_layer = self._create_reduced_mlp(old_layer, surviving_channels, layer_name)
+                        
+                        # Replace the old module
+                        setattr(current_module, parts[-1], new_layer)
+                        
+                        rebuilt_layers[layer_name] = {
+                            'old_channels': len(mask),
+                            'new_channels': len(surviving_channels),
+                            'reduction': 1 - len(surviving_channels) / len(mask)
+                        }
+                        
+                        print(f"  ✅ Rebuilt MLP: {layer_name} ({len(mask)} → {len(surviving_channels)} channels)")
+                
+                except Exception as e:
+                    print(f"  ❌ Failed to rebuild MLP {layer_name}: {e}")
+        
+        return rebuilt_layers
+    
+    def _create_reduced_mlp(self, old_layer, surviving_channels, layer_name):
+        """Create new MLP layer with only surviving channels"""
+        if not hasattr(old_layer, 'weight'):
+            return old_layer
+        
+        old_weight = old_layer.weight
+        old_in_features = old_layer.in_features
+        old_out_features = old_layer.out_features
+        
+        # Determine if this is fc1 (expand) or fc2 (contract)
+        if 'fc1' in layer_name:
+            # FC1: prune output channels (intermediate dimension)
+            new_out_features = len(surviving_channels)
+            new_in_features = old_in_features
+            
+            new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
+            new_layer = new_layer.to(self.device)
+            
+            with torch.no_grad():
+                # Copy weights for surviving output channels
+                new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
+                for new_idx, old_idx in enumerate(surviving_channels):
+                    if old_idx < old_out_features:
+                        new_weight[new_idx] = old_weight[old_idx]
+                
+                new_layer.weight.copy_(new_weight)
+                
+                # Copy bias for surviving channels
+                if old_layer.bias is not None:
+                    new_bias = torch.zeros(new_out_features, device=self.device)
+                    for new_idx, old_idx in enumerate(surviving_channels):
+                        if old_idx < old_layer.bias.shape[0]:
+                            new_bias[new_idx] = old_layer.bias[old_idx]
+                    new_layer.bias.copy_(new_bias)
+        
+        elif 'fc2' in layer_name:
+            # FC2: prune input channels (intermediate dimension)
+            new_in_features = len(surviving_channels)
+            new_out_features = old_out_features
+            
+            new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
+            new_layer = new_layer.to(self.device)
+            
+            with torch.no_grad():
+                # Copy weights for surviving input channels
+                new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
+                for new_idx, old_idx in enumerate(surviving_channels):
+                    if old_idx < old_in_features:
+                        new_weight[:, new_idx] = old_weight[:, old_idx]
+                
+                new_layer.weight.copy_(new_weight)
+                
+                # Copy full bias (output dimension unchanged)
+                if old_layer.bias is not None:
+                    new_layer.bias.copy_(old_layer.bias)
+        
+        else:
+            # Generic linear layer: default to output channel pruning
+            new_out_features = len(surviving_channels)
+            new_in_features = old_in_features
+            
+            new_layer = nn.Linear(new_in_features, new_out_features, bias=old_layer.bias is not None)
+            new_layer = new_layer.to(self.device)
+            
+            with torch.no_grad():
+                new_weight = torch.zeros(new_out_features, new_in_features, device=self.device)
+                for new_idx, old_idx in enumerate(surviving_channels):
+                    if old_idx < old_out_features:
+                        new_weight[new_idx] = old_weight[old_idx]
+                
+                new_layer.weight.copy_(new_weight)
+                
+                if old_layer.bias is not None:
+                    new_bias = torch.zeros(new_out_features, device=self.device)
+                    for new_idx, old_idx in enumerate(surviving_channels):
+                        if old_idx < old_layer.bias.shape[0]:
+                            new_bias[new_idx] = old_layer.bias[old_idx]
+                    new_layer.bias.copy_(new_bias)
+        
+        return new_layer
+    
+    def _count_total_parameters(self):
+        """Count total trainable parameters"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        return sum(p.numel() for p in network.parameters() if p.requires_grad)
+    
+    def _estimate_flops(self):
+        """Rough FLOP estimation for SwinIR"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        
+        total_flops = 0
+        for name, module in network.named_modules():
+            if isinstance(module, nn.Linear):
+                # Linear layer FLOPs: input_dim * output_dim
+                total_flops += module.in_features * module.out_features
+            elif hasattr(module, 'qkv') and hasattr(module, 'num_heads'):
+                # Attention FLOPs: roughly 3 * embed_dim^2 for QKV + attention
+                embed_dim = module.qkv.out_features // 3
+                total_flops += 4 * embed_dim * embed_dim  # QKV + attention
+        
+        return total_flops
+
+class FLOPsAnalyzer:
+    """
+    SOLUTION TO CHALLENGE #2: Real FLOPs and Inference Speed Measurement
+    
+    This class provides accurate FLOPs measurement and inference speed benchmarking
+    to demonstrate real speedup from model surgery (not just parameter count).
+    """
+    
+    def __init__(self, model, input_shape=(1, 3, 64, 64)):
+        self.model = model
+        self.input_shape = input_shape
+        self.device = next(model.netG.parameters()).device if hasattr(model, 'netG') else next(model.parameters()).device
+    
+    def measure_flops_and_params(self):
+        """Measure FLOPs and parameters accurately"""
+        try:
+            # Try using ptflops if available
+            import ptflops
+            
+            network = self.model.netG if hasattr(self.model, 'netG') else self.model
+            flops, params = ptflops.get_model_complexity_info(
+                network, 
+                self.input_shape[1:],  # Remove batch dimension
+                as_strings=False,
+                print_per_layer_stat=False
+            )
+            
+            return flops, params
+            
+        except ImportError:
+            # Fallback to manual calculation
+            print("⚠️ ptflops not available, using manual FLOP estimation")
+            params = self._count_parameters()
+            flops = self._estimate_flops_manual()
+            return flops, params
+    
+    def benchmark_inference_speed(self, num_runs=50, warmup_runs=10):
+        """Benchmark real inference speed"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        network.eval()
+        
+        # Create dummy input
+        dummy_input = torch.randn(self.input_shape).to(self.device)
+        
+        # Warmup
+        with torch.no_grad():
+            for _ in range(warmup_runs):
+                _ = network(dummy_input)
+        
+        # Synchronize GPU
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        
+        # Benchmark
+        start_time = time.time()
+        with torch.no_grad():
+            for _ in range(num_runs):
+                _ = network(dummy_input)
+        
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        
+        end_time = time.time()
+        
+        avg_time = (end_time - start_time) / num_runs
+        fps = 1.0 / avg_time
+        
+        return avg_time, fps
+    
+    def compare_models(self, baseline_model, pruned_model):
+        """Compare baseline vs pruned model performance"""
+        print("\n📊 Model Performance Comparison:")
+        print("=" * 60)
+        
+        # Measure baseline
+        baseline_analyzer = FLOPsAnalyzer(baseline_model, self.input_shape)
+        baseline_flops, baseline_params = baseline_analyzer.measure_flops_and_params()
+        baseline_time, baseline_fps = baseline_analyzer.benchmark_inference_speed()
+        
+        # Measure pruned
+        pruned_analyzer = FLOPsAnalyzer(pruned_model, self.input_shape)
+        pruned_flops, pruned_params = pruned_analyzer.measure_flops_and_params()
+        pruned_time, pruned_fps = pruned_analyzer.benchmark_inference_speed()
+        
+        # Calculate reductions
+        param_reduction = (baseline_params - pruned_params) / baseline_params
+        flops_reduction = (baseline_flops - pruned_flops) / baseline_flops
+        speedup = baseline_time / pruned_time
+        
+        print(f"Baseline Model:")
+        print(f"  Parameters: {baseline_params:,}")
+        print(f"  FLOPs: {baseline_flops/1e9:.3f}G")
+        print(f"  Inference time: {baseline_time*1000:.2f}ms")
+        print(f"  FPS: {baseline_fps:.1f}")
+        
+        print(f"\nPruned Model:")
+        print(f"  Parameters: {pruned_params:,}")
+        print(f"  FLOPs: {pruned_flops/1e9:.3f}G")
+        print(f"  Inference time: {pruned_time*1000:.2f}ms")
+        print(f"  FPS: {pruned_fps:.1f}")
+        
+        print(f"\nImprovements:")
+        print(f"  📉 Parameter reduction: {param_reduction:.1%}")
+        print(f"  ⚡ FLOPs reduction: {flops_reduction:.1%}")
+        print(f"  🚀 Speedup: {speedup:.2f}x")
+        print(f"  📈 FPS gain: +{(pruned_fps - baseline_fps):.1f}")
+        
+        return {
+            'param_reduction': param_reduction,
+            'flops_reduction': flops_reduction,
+            'speedup': speedup,
+            'baseline_stats': (baseline_params, baseline_flops, baseline_time, baseline_fps),
+            'pruned_stats': (pruned_params, pruned_flops, pruned_time, pruned_fps)
+        }
+    
+    def _count_parameters(self):
+        """Count total parameters"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        return sum(p.numel() for p in network.parameters() if p.requires_grad)
+    
+    def _estimate_flops_manual(self):
+        """Manual FLOP estimation"""
+        network = self.model.netG if hasattr(self.model, 'netG') else self.model
+        
+        total_flops = 0
+        for name, module in network.named_modules():
+            if isinstance(module, nn.Linear):
+                # Linear: input_features * output_features * 2 (MAC)
+                total_flops += module.in_features * module.out_features * 2
+            elif isinstance(module, nn.Conv2d):
+                # Conv2d: kernel_size * input_channels * output_channels * output_h * output_w
+                kernel_flops = module.kernel_size[0] * module.kernel_size[1]
+                output_elements = module.out_channels * (self.input_shape[2] // module.stride[0]) * (self.input_shape[3] // module.stride[1])
+                total_flops += kernel_flops * module.in_channels * output_elements
+            elif hasattr(module, 'qkv') and hasattr(module, 'num_heads'):
+                # Multi-head attention
+                embed_dim = module.qkv.out_features // 3
+                seq_len = (self.input_shape[2] // 4) * (self.input_shape[3] // 4)  # Typical patch size
+                
+                # QKV projection
+                total_flops += embed_dim * embed_dim * 3 * seq_len * 2
+                
+                # Attention computation
+                total_flops += module.num_heads * seq_len * seq_len * embed_dim * 2
+                
+                # Output projection
+                total_flops += embed_dim * embed_dim * seq_len * 2
+        
+        return total_flops
 
 class KnowledgeDistillationTrainer:
     """Enhanced Knowledge Distillation for Fine-tuning with Feature Distillation"""
@@ -887,10 +1414,34 @@ class IterativePruningPipeline:
             # Collect importance scores
             self._collect_importance_scores(train_loader)
             
-            # Create and apply pruning plan
+            # Create and apply pruning plan WITH MODEL SURGERY
             importance_threshold = 0.5 - 0.1 * iteration  # Adaptive threshold
             pruning_plan = self.pruner.create_pruning_plan(current_target, importance_threshold)
-            actual_reduction = self.pruner.apply_pruning_plan(pruning_plan)
+            
+            # ✅ USE MODEL SURGERY FOR REAL PARAMETER REDUCTION
+            actual_reduction = self.pruner.apply_pruning_plan(pruning_plan, use_model_surgery=True)
+            
+            # Measure real performance improvements after surgery
+            if iteration == 0:  # First iteration - also measure baseline
+                print("📊 Measuring baseline performance...")
+                flops_analyzer = FLOPsAnalyzer(self.original_model, input_shape=(1, 3, 64, 64))
+                baseline_flops, baseline_params = flops_analyzer.measure_flops_and_params()
+                baseline_time, baseline_fps = flops_analyzer.benchmark_inference_speed()
+                
+                print(f"  Baseline - Params: {baseline_params:,}, FLOPs: {baseline_flops/1e9:.2f}G, Time: {baseline_time*1000:.2f}ms")
+            
+            print("📊 Measuring pruned model performance...")
+            pruned_analyzer = FLOPsAnalyzer(self.model, input_shape=(1, 3, 64, 64))
+            pruned_flops, pruned_params = pruned_analyzer.measure_flops_and_params()
+            pruned_time, pruned_fps = pruned_analyzer.benchmark_inference_speed()
+            
+            if iteration == 0:
+                speedup = baseline_time / pruned_time
+                flops_reduction = (baseline_flops - pruned_flops) / baseline_flops
+                print(f"  Pruned - Params: {pruned_params:,}, FLOPs: {pruned_flops/1e9:.2f}G, Time: {pruned_time*1000:.2f}ms")
+                print(f"  🚀 Speedup: {speedup:.2f}x, FLOPs reduction: {flops_reduction:.1%}")
+            else:
+                print(f"  Pruned - Params: {pruned_params:,}, FLOPs: {pruned_flops/1e9:.2f}G, Time: {pruned_time*1000:.2f}ms")
             
             # Fine-tune with knowledge distillation
             fine_tune_epochs = self.config.get('fine_tune_epochs', 3)

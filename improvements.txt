@@ -1,0 +1,73 @@
+Here are precise, minimal expert fixes to make your SwinIR-Light pruning pipeline truly publishable and meet Q1/Q2 standards, based on your code and results:
+
+1. Physically Remove Pruned Heads/Channels (Model Surgery)
+Problem:
+Your current code only zeroes out weights for pruned heads/channels. This does not reduce inference time, memory, or FLOPs—hardware still processes the full tensors.
+
+Fix:
+After each pruning iteration, rebuild the affected layers (attention and MLP) to remove the pruned heads/channels.
+
+For each pruned attention layer:
+Create a new attention module with reduced num_heads and copy only the unpruned weights.
+For each pruned MLP:
+Create new Linear layers with reduced input/output features, copying only the unpruned channels.
+How:
+
+Write a utility function (e.g., rebuild_pruned_layers(model, mask_manager)) that:
+Iterates over pruned layers.
+Constructs new modules with reduced dimensions.
+Copies over surviving weights/biases.
+Replaces the old modules in the model.
+Call this function after each pruning iteration, before fine-tuning.
+Reference:
+See X-Pruner or ViT pruning code for examples.
+
+2. Report and Optimize FLOPs/Inference Speed
+Problem:
+You only report parameter count, not FLOPs or real speedup. Journals expect FLOPs and wall-clock speedup.
+
+Fix:
+
+Use ptflops or fvcore to measure and report FLOPs before and after pruning.
+Add FLOPs reporting to your evaluation summary.
+After model surgery, you should see a real reduction in FLOPs and inference time.
+3. Fix Knowledge Distillation Feature Loss
+Problem:
+Your logs show feature distillation loss is always zero, meaning features are not being captured or compared correctly.
+
+Fix:
+
+Double-check that your feature hooks are attached to the correct layers and that the outputs are tensors (not lists or dicts).
+Consider using more layers for feature distillation (e.g., all RSTB blocks, not just layers.1 and layers.2).
+Optionally, add a high-frequency loss (e.g., Laplacian) to further boost SR detail.
+4. Pruning Schedule and Thresholds
+Problem:
+Pruning is aggressive in the first iteration, then stalls.
+
+Fix:
+
+Use a fixed percentage per iteration (e.g., prune 10–20% of remaining heads/channels each time), or set a global target per iteration.
+Ensure importance scores are recalculated after each model surgery.
+5. Minimal Ablation and Visualization
+Problem:
+No ablation or visualization of pruning effect.
+
+Fix:
+
+Add a minimal ablation: prune only heads, only channels, and both, and compare results.
+Visualize importance scores and which units are pruned (e.g., heatmap or bar plot).
+6. (Optional) Save and Export the Physically Pruned Model
+Problem:
+Zeroed weights are not compatible with deployment.
+
+Fix:
+
+After model surgery, save the compact model (with reduced heads/channels) for deployment.
+Summary Table
+Issue	Minimal Fix
+No real parameter/speed gain	Physically remove pruned heads/channels (model surgery) after each iteration
+No FLOPs/speedup reported	Add FLOPs and wall-clock speed reporting before/after pruning
+Feature KD loss is zero	Fix feature hooks, use more layers, ensure outputs are tensors
+Pruning stalls after 1st iter	Use fixed-percentage or adaptive threshold per iteration
+No ablation/visualization	Add minimal ablation and visualize pruned units
+Implementing these fixes will make your results robust, credible, and ready for Q1/Q2 publication. If you want code snippets for model surgery or FLOPs reporting, just ask!
