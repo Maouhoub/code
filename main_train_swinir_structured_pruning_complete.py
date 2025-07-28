@@ -616,8 +616,9 @@ class StructuredPruner:
             model_surgeon = ModelSurgery(self.model, self.mask_manager)
             surgically_pruned_model, param_reduction, flops_reduction = model_surgeon.rebuild_pruned_model()
             
-            # Update our model reference
+            # Update our model and mask manager references
             self.model = surgically_pruned_model
+            self.mask_manager = model_surgeon.mask_manager  # Use updated mask manager
             
             # Count parameters after surgery
             params_after = self._count_total_parameters()
@@ -902,6 +903,9 @@ class ModelSurgery:
         print(f"  🎯 Attention layers rebuilt: {len(attention_reductions)}")
         print(f"  🎯 MLP layers rebuilt: {len(mlp_reductions)}")
         
+        # Update mask manager to reflect the new model dimensions
+        self._update_mask_manager_post_surgery()
+        
         return self.model, param_reduction, flops_reduction
     
     def _rebuild_attention_layers(self):
@@ -1155,6 +1159,40 @@ class ModelSurgery:
                 new_layer.bias.copy_(old_layer.bias)
         
         return new_layer
+    
+    def _update_mask_manager_post_surgery(self, attention_reductions, mlp_reductions):
+        """Update mask manager to reflect new dimensions after surgery"""
+        print("🔄 Updating mask manager with post-surgery dimensions...")
+        
+        # Update attention masks with new head counts
+        for layer_name, reduction_info in attention_reductions.items():
+            if layer_name in self.mask_manager.attention_masks:
+                new_heads = reduction_info['new_heads']
+                # Create new mask with all heads active (since we physically removed the pruned ones)
+                new_mask = torch.ones(new_heads, device=self.device)
+                self.mask_manager.attention_masks[layer_name] = new_mask
+                
+                # Reset importance scores for this layer
+                if layer_name in self.mask_manager.importance_scores:
+                    del self.mask_manager.importance_scores[layer_name]
+                
+                print(f"  ✅ Updated attention mask: {layer_name} → {new_heads} heads")
+        
+        # Update MLP masks with new channel counts
+        for layer_name, reduction_info in mlp_reductions.items():
+            if layer_name in self.mask_manager.channel_masks:
+                new_channels = reduction_info['new_channels']
+                # Create new mask with all channels active
+                new_mask = torch.ones(new_channels, device=self.device)
+                self.mask_manager.channel_masks[layer_name] = new_mask
+                
+                # Reset importance scores for this layer
+                if layer_name in self.mask_manager.importance_scores:
+                    del self.mask_manager.importance_scores[layer_name]
+                
+                print(f"  ✅ Updated MLP mask: {layer_name} → {new_channels} channels")
+        
+        print(f"✅ Mask manager updated with {len(attention_reductions)} attention + {len(mlp_reductions)} MLP layers")
     
     def _count_total_parameters(self):
         """Count total trainable parameters"""
