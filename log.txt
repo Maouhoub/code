@@ -2,7 +2,7 @@ export CUDA_VISIBLE_DEVICES=0
 number of GPUs is: 1
 iterations: 0 None
 LogHandlers setup!
-Random seed: 352
+Random seed: 3126
 Dataset [DatasetSR - train_dataset] is created.
 Number of train images: 550, iters: 9
 Dataset [DatasetSR - test_dataset] is created.
@@ -17,1261 +17,476 @@ Loading model for G [superresolution/swinir_sr_lightweight_x2/models/240_G.pth] 
 ======================================================================
 SWINIR STRUCTURED PRUNING TRAINING
 ======================================================================
-Target parameter reduction: 40.0%
-Number of iterations: 3
-Schedule type: linear
+Target parameter reduction: 65.0%
+Number of iterations: 5
+Schedule type: exponential
 ======================================================================
-Registered 0 pruning hooks for mask application
+Initializing importance masks...
+Analyzing SwinIR model structure...
+Model structure analysis:
+  ? SwinIR Attention: module.layers.0.residual_group.blocks.0.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.0.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.0.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.0.residual_group.blocks.1.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.1.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.1.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.0.residual_group.blocks.2.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.2.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.2.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.0.residual_group.blocks.3.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.3.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.3.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.0.residual_group.blocks.4.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.4.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.4.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.0.residual_group.blocks.5.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.5.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.0.residual_group.blocks.5.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.1.residual_group.blocks.0.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.0.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.0.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.1.residual_group.blocks.1.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.1.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.1.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.1.residual_group.blocks.2.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.2.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.2.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.1.residual_group.blocks.3.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.3.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.3.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.1.residual_group.blocks.4.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.4.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.4.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.1.residual_group.blocks.5.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.5.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.1.residual_group.blocks.5.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.2.residual_group.blocks.0.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.0.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.0.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.2.residual_group.blocks.1.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.1.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.1.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.2.residual_group.blocks.2.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.2.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.2.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.2.residual_group.blocks.3.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.3.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.3.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.2.residual_group.blocks.4.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.4.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.4.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.2.residual_group.blocks.5.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.5.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.2.residual_group.blocks.5.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.3.residual_group.blocks.0.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.0.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.0.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.3.residual_group.blocks.1.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.1.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.1.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.3.residual_group.blocks.2.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.2.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.2.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.3.residual_group.blocks.3.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.3.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.3.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.3.residual_group.blocks.4.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.4.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.4.mlp.fc2 (Linear) - 60 channels
+  ? SwinIR Attention: module.layers.3.residual_group.blocks.5.attn (WindowAttention) - 6 heads
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.5.mlp.fc1 (Linear) - 120 channels
+  ? SwinIR MLP: module.layers.3.residual_group.blocks.5.mlp.fc2 (Linear) - 60 channels
+
+SwinIR Architecture Analysis Complete:
+  Found 24 attention layers
+  Found 48 MLP layers
+Registered 72 pruning hooks for mask application
 ======================================================================
 ITERATIVE PRUNING PIPELINE
 ======================================================================
 Original model parameters: 910,152
-Target reduction: 40.0%
-Schedule type: linear
-Number of iterations: 3
-Initializing importance masks...
-Analyzing SwinIR model structure...
-Model structure analysis:
-  module.layers: ModuleList
-  module.layers.0: RSTB
-  module.layers.0.residual_group: BasicLayer
-  module.layers.0.residual_group.blocks: ModuleList
-  module.layers.0.residual_group.blocks.0: SwinTransformerBlock
-  ? Added attention head mask for module.layers.0.residual_group.blocks.0: 6 heads
-  module.layers.0.residual_group.blocks.0.norm1: LayerNorm
-  module.layers.0.residual_group.blocks.0.attn: WindowAttention
-  ? Added attention head mask for module.layers.0.residual_group.blocks.0.attn: 6 heads
-  module.layers.0.residual_group.blocks.0.attn.qkv: Linear
-  module.layers.0.residual_group.blocks.0.attn.attn_drop: Dropout
-  module.layers.0.residual_group.blocks.0.attn.proj: Linear
-  module.layers.0.residual_group.blocks.0.attn.proj_drop: Dropout
-  module.layers.0.residual_group.blocks.0.attn.softmax: Softmax
-  module.layers.0.residual_group.blocks.0.drop_path: Identity
-  module.layers.0.residual_group.blocks.0.norm2: LayerNorm
-  module.layers.0.residual_group.blocks.0.mlp: Mlp
-  module.layers.0.residual_group.blocks.0.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.0.mlp.fc1: 120 channels
-  module.layers.0.residual_group.blocks.0.mlp.act: GELU
-  module.layers.0.residual_group.blocks.0.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.0.mlp.fc2: 60 channels
-  module.layers.0.residual_group.blocks.0.mlp.drop: Dropout
-  module.layers.0.residual_group.blocks.1: SwinTransformerBlock
-  ? Added attention head mask for module.layers.0.residual_group.blocks.1: 6 heads
-  module.layers.0.residual_group.blocks.1.norm1: LayerNorm
-  module.layers.0.residual_group.blocks.1.attn: WindowAttention
-  ? Added attention head mask for module.layers.0.residual_group.blocks.1.attn: 6 heads
-  module.layers.0.residual_group.blocks.1.attn.qkv: Linear
-  module.layers.0.residual_group.blocks.1.attn.attn_drop: Dropout
-  module.layers.0.residual_group.blocks.1.attn.proj: Linear
-  module.layers.0.residual_group.blocks.1.attn.proj_drop: Dropout
-  module.layers.0.residual_group.blocks.1.attn.softmax: Softmax
-  module.layers.0.residual_group.blocks.1.drop_path: DropPath
-  module.layers.0.residual_group.blocks.1.norm2: LayerNorm
-  module.layers.0.residual_group.blocks.1.mlp: Mlp
-  module.layers.0.residual_group.blocks.1.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.1.mlp.fc1: 120 channels
-  module.layers.0.residual_group.blocks.1.mlp.act: GELU
-  module.layers.0.residual_group.blocks.1.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.1.mlp.fc2: 60 channels
-  module.layers.0.residual_group.blocks.1.mlp.drop: Dropout
-  module.layers.0.residual_group.blocks.2: SwinTransformerBlock
-  ? Added attention head mask for module.layers.0.residual_group.blocks.2: 6 heads
-  module.layers.0.residual_group.blocks.2.norm1: LayerNorm
-  module.layers.0.residual_group.blocks.2.attn: WindowAttention
-  ? Added attention head mask for module.layers.0.residual_group.blocks.2.attn: 6 heads
-  module.layers.0.residual_group.blocks.2.attn.qkv: Linear
-  module.layers.0.residual_group.blocks.2.attn.attn_drop: Dropout
-  module.layers.0.residual_group.blocks.2.attn.proj: Linear
-  module.layers.0.residual_group.blocks.2.attn.proj_drop: Dropout
-  module.layers.0.residual_group.blocks.2.attn.softmax: Softmax
-  module.layers.0.residual_group.blocks.2.drop_path: DropPath
-  module.layers.0.residual_group.blocks.2.norm2: LayerNorm
-  module.layers.0.residual_group.blocks.2.mlp: Mlp
-  module.layers.0.residual_group.blocks.2.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.2.mlp.fc1: 120 channels
-  module.layers.0.residual_group.blocks.2.mlp.act: GELU
-  module.layers.0.residual_group.blocks.2.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.2.mlp.fc2: 60 channels
-  module.layers.0.residual_group.blocks.2.mlp.drop: Dropout
-  module.layers.0.residual_group.blocks.3: SwinTransformerBlock
-  ? Added attention head mask for module.layers.0.residual_group.blocks.3: 6 heads
-  module.layers.0.residual_group.blocks.3.norm1: LayerNorm
-  module.layers.0.residual_group.blocks.3.attn: WindowAttention
-  ? Added attention head mask for module.layers.0.residual_group.blocks.3.attn: 6 heads
-  module.layers.0.residual_group.blocks.3.attn.qkv: Linear
-  module.layers.0.residual_group.blocks.3.attn.attn_drop: Dropout
-  module.layers.0.residual_group.blocks.3.attn.proj: Linear
-  module.layers.0.residual_group.blocks.3.attn.proj_drop: Dropout
-  module.layers.0.residual_group.blocks.3.attn.softmax: Softmax
-  module.layers.0.residual_group.blocks.3.drop_path: DropPath
-  module.layers.0.residual_group.blocks.3.norm2: LayerNorm
-  module.layers.0.residual_group.blocks.3.mlp: Mlp
-  module.layers.0.residual_group.blocks.3.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.3.mlp.fc1: 120 channels
-  module.layers.0.residual_group.blocks.3.mlp.act: GELU
-  module.layers.0.residual_group.blocks.3.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.3.mlp.fc2: 60 channels
-  module.layers.0.residual_group.blocks.3.mlp.drop: Dropout
-  module.layers.0.residual_group.blocks.4: SwinTransformerBlock
-  ? Added attention head mask for module.layers.0.residual_group.blocks.4: 6 heads
-  module.layers.0.residual_group.blocks.4.norm1: LayerNorm
-  module.layers.0.residual_group.blocks.4.attn: WindowAttention
-  ? Added attention head mask for module.layers.0.residual_group.blocks.4.attn: 6 heads
-  module.layers.0.residual_group.blocks.4.attn.qkv: Linear
-  module.layers.0.residual_group.blocks.4.attn.attn_drop: Dropout
-  module.layers.0.residual_group.blocks.4.attn.proj: Linear
-  module.layers.0.residual_group.blocks.4.attn.proj_drop: Dropout
-  module.layers.0.residual_group.blocks.4.attn.softmax: Softmax
-  module.layers.0.residual_group.blocks.4.drop_path: DropPath
-  module.layers.0.residual_group.blocks.4.norm2: LayerNorm
-  module.layers.0.residual_group.blocks.4.mlp: Mlp
-  module.layers.0.residual_group.blocks.4.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.4.mlp.fc1: 120 channels
-  module.layers.0.residual_group.blocks.4.mlp.act: GELU
-  module.layers.0.residual_group.blocks.4.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.4.mlp.fc2: 60 channels
-  module.layers.0.residual_group.blocks.4.mlp.drop: Dropout
-  module.layers.0.residual_group.blocks.5: SwinTransformerBlock
-  ? Added attention head mask for module.layers.0.residual_group.blocks.5: 6 heads
-  module.layers.0.residual_group.blocks.5.norm1: LayerNorm
-  module.layers.0.residual_group.blocks.5.attn: WindowAttention
-  ? Added attention head mask for module.layers.0.residual_group.blocks.5.attn: 6 heads
-  module.layers.0.residual_group.blocks.5.attn.qkv: Linear
-  module.layers.0.residual_group.blocks.5.attn.attn_drop: Dropout
-  module.layers.0.residual_group.blocks.5.attn.proj: Linear
-  module.layers.0.residual_group.blocks.5.attn.proj_drop: Dropout
-  module.layers.0.residual_group.blocks.5.attn.softmax: Softmax
-  module.layers.0.residual_group.blocks.5.drop_path: DropPath
-  module.layers.0.residual_group.blocks.5.norm2: LayerNorm
-  module.layers.0.residual_group.blocks.5.mlp: Mlp
-  module.layers.0.residual_group.blocks.5.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.5.mlp.fc1: 120 channels
-  module.layers.0.residual_group.blocks.5.mlp.act: GELU
-  module.layers.0.residual_group.blocks.5.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.0.residual_group.blocks.5.mlp.fc2: 60 channels
-  module.layers.0.residual_group.blocks.5.mlp.drop: Dropout
-  module.layers.0.conv: Conv2d
-  module.layers.0.patch_embed: PatchEmbed
-  module.layers.0.patch_unembed: PatchUnEmbed
-  module.layers.1: RSTB
-  module.layers.1.residual_group: BasicLayer
-  module.layers.1.residual_group.blocks: ModuleList
-  module.layers.1.residual_group.blocks.0: SwinTransformerBlock
-  ? Added attention head mask for module.layers.1.residual_group.blocks.0: 6 heads
-  module.layers.1.residual_group.blocks.0.norm1: LayerNorm
-  module.layers.1.residual_group.blocks.0.attn: WindowAttention
-  ? Added attention head mask for module.layers.1.residual_group.blocks.0.attn: 6 heads
-  module.layers.1.residual_group.blocks.0.attn.qkv: Linear
-  module.layers.1.residual_group.blocks.0.attn.attn_drop: Dropout
-  module.layers.1.residual_group.blocks.0.attn.proj: Linear
-  module.layers.1.residual_group.blocks.0.attn.proj_drop: Dropout
-  module.layers.1.residual_group.blocks.0.attn.softmax: Softmax
-  module.layers.1.residual_group.blocks.0.drop_path: DropPath
-  module.layers.1.residual_group.blocks.0.norm2: LayerNorm
-  module.layers.1.residual_group.blocks.0.mlp: Mlp
-  module.layers.1.residual_group.blocks.0.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.0.mlp.fc1: 120 channels
-  module.layers.1.residual_group.blocks.0.mlp.act: GELU
-  module.layers.1.residual_group.blocks.0.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.0.mlp.fc2: 60 channels
-  module.layers.1.residual_group.blocks.0.mlp.drop: Dropout
-  module.layers.1.residual_group.blocks.1: SwinTransformerBlock
-  ? Added attention head mask for module.layers.1.residual_group.blocks.1: 6 heads
-  module.layers.1.residual_group.blocks.1.norm1: LayerNorm
-  module.layers.1.residual_group.blocks.1.attn: WindowAttention
-  ? Added attention head mask for module.layers.1.residual_group.blocks.1.attn: 6 heads
-  module.layers.1.residual_group.blocks.1.attn.qkv: Linear
-  module.layers.1.residual_group.blocks.1.attn.attn_drop: Dropout
-  module.layers.1.residual_group.blocks.1.attn.proj: Linear
-  module.layers.1.residual_group.blocks.1.attn.proj_drop: Dropout
-  module.layers.1.residual_group.blocks.1.attn.softmax: Softmax
-  module.layers.1.residual_group.blocks.1.drop_path: DropPath
-  module.layers.1.residual_group.blocks.1.norm2: LayerNorm
-  module.layers.1.residual_group.blocks.1.mlp: Mlp
-  module.layers.1.residual_group.blocks.1.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.1.mlp.fc1: 120 channels
-  module.layers.1.residual_group.blocks.1.mlp.act: GELU
-  module.layers.1.residual_group.blocks.1.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.1.mlp.fc2: 60 channels
-  module.layers.1.residual_group.blocks.1.mlp.drop: Dropout
-  module.layers.1.residual_group.blocks.2: SwinTransformerBlock
-  ? Added attention head mask for module.layers.1.residual_group.blocks.2: 6 heads
-  module.layers.1.residual_group.blocks.2.norm1: LayerNorm
-  module.layers.1.residual_group.blocks.2.attn: WindowAttention
-  ? Added attention head mask for module.layers.1.residual_group.blocks.2.attn: 6 heads
-  module.layers.1.residual_group.blocks.2.attn.qkv: Linear
-  module.layers.1.residual_group.blocks.2.attn.attn_drop: Dropout
-  module.layers.1.residual_group.blocks.2.attn.proj: Linear
-  module.layers.1.residual_group.blocks.2.attn.proj_drop: Dropout
-  module.layers.1.residual_group.blocks.2.attn.softmax: Softmax
-  module.layers.1.residual_group.blocks.2.drop_path: DropPath
-  module.layers.1.residual_group.blocks.2.norm2: LayerNorm
-  module.layers.1.residual_group.blocks.2.mlp: Mlp
-  module.layers.1.residual_group.blocks.2.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.2.mlp.fc1: 120 channels
-  module.layers.1.residual_group.blocks.2.mlp.act: GELU
-  module.layers.1.residual_group.blocks.2.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.2.mlp.fc2: 60 channels
-  module.layers.1.residual_group.blocks.2.mlp.drop: Dropout
-  module.layers.1.residual_group.blocks.3: SwinTransformerBlock
-  ? Added attention head mask for module.layers.1.residual_group.blocks.3: 6 heads
-  module.layers.1.residual_group.blocks.3.norm1: LayerNorm
-  module.layers.1.residual_group.blocks.3.attn: WindowAttention
-  ? Added attention head mask for module.layers.1.residual_group.blocks.3.attn: 6 heads
-  module.layers.1.residual_group.blocks.3.attn.qkv: Linear
-  module.layers.1.residual_group.blocks.3.attn.attn_drop: Dropout
-  module.layers.1.residual_group.blocks.3.attn.proj: Linear
-  module.layers.1.residual_group.blocks.3.attn.proj_drop: Dropout
-  module.layers.1.residual_group.blocks.3.attn.softmax: Softmax
-  module.layers.1.residual_group.blocks.3.drop_path: DropPath
-  module.layers.1.residual_group.blocks.3.norm2: LayerNorm
-  module.layers.1.residual_group.blocks.3.mlp: Mlp
-  module.layers.1.residual_group.blocks.3.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.3.mlp.fc1: 120 channels
-  module.layers.1.residual_group.blocks.3.mlp.act: GELU
-  module.layers.1.residual_group.blocks.3.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.3.mlp.fc2: 60 channels
-  module.layers.1.residual_group.blocks.3.mlp.drop: Dropout
-  module.layers.1.residual_group.blocks.4: SwinTransformerBlock
-  ? Added attention head mask for module.layers.1.residual_group.blocks.4: 6 heads
-  module.layers.1.residual_group.blocks.4.norm1: LayerNorm
-  module.layers.1.residual_group.blocks.4.attn: WindowAttention
-  ? Added attention head mask for module.layers.1.residual_group.blocks.4.attn: 6 heads
-  module.layers.1.residual_group.blocks.4.attn.qkv: Linear
-  module.layers.1.residual_group.blocks.4.attn.attn_drop: Dropout
-  module.layers.1.residual_group.blocks.4.attn.proj: Linear
-  module.layers.1.residual_group.blocks.4.attn.proj_drop: Dropout
-  module.layers.1.residual_group.blocks.4.attn.softmax: Softmax
-  module.layers.1.residual_group.blocks.4.drop_path: DropPath
-  module.layers.1.residual_group.blocks.4.norm2: LayerNorm
-  module.layers.1.residual_group.blocks.4.mlp: Mlp
-  module.layers.1.residual_group.blocks.4.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.4.mlp.fc1: 120 channels
-  module.layers.1.residual_group.blocks.4.mlp.act: GELU
-  module.layers.1.residual_group.blocks.4.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.4.mlp.fc2: 60 channels
-  module.layers.1.residual_group.blocks.4.mlp.drop: Dropout
-  module.layers.1.residual_group.blocks.5: SwinTransformerBlock
-  ? Added attention head mask for module.layers.1.residual_group.blocks.5: 6 heads
-  module.layers.1.residual_group.blocks.5.norm1: LayerNorm
-  module.layers.1.residual_group.blocks.5.attn: WindowAttention
-  ? Added attention head mask for module.layers.1.residual_group.blocks.5.attn: 6 heads
-  module.layers.1.residual_group.blocks.5.attn.qkv: Linear
-  module.layers.1.residual_group.blocks.5.attn.attn_drop: Dropout
-  module.layers.1.residual_group.blocks.5.attn.proj: Linear
-  module.layers.1.residual_group.blocks.5.attn.proj_drop: Dropout
-  module.layers.1.residual_group.blocks.5.attn.softmax: Softmax
-  module.layers.1.residual_group.blocks.5.drop_path: DropPath
-  module.layers.1.residual_group.blocks.5.norm2: LayerNorm
-  module.layers.1.residual_group.blocks.5.mlp: Mlp
-  module.layers.1.residual_group.blocks.5.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.5.mlp.fc1: 120 channels
-  module.layers.1.residual_group.blocks.5.mlp.act: GELU
-  module.layers.1.residual_group.blocks.5.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.1.residual_group.blocks.5.mlp.fc2: 60 channels
-  module.layers.1.residual_group.blocks.5.mlp.drop: Dropout
-  module.layers.1.conv: Conv2d
-  module.layers.1.patch_embed: PatchEmbed
-  module.layers.1.patch_unembed: PatchUnEmbed
-  module.layers.2: RSTB
-  module.layers.2.residual_group: BasicLayer
-  module.layers.2.residual_group.blocks: ModuleList
-  module.layers.2.residual_group.blocks.0: SwinTransformerBlock
-  ? Added attention head mask for module.layers.2.residual_group.blocks.0: 6 heads
-  module.layers.2.residual_group.blocks.0.norm1: LayerNorm
-  module.layers.2.residual_group.blocks.0.attn: WindowAttention
-  ? Added attention head mask for module.layers.2.residual_group.blocks.0.attn: 6 heads
-  module.layers.2.residual_group.blocks.0.attn.qkv: Linear
-  module.layers.2.residual_group.blocks.0.attn.attn_drop: Dropout
-  module.layers.2.residual_group.blocks.0.attn.proj: Linear
-  module.layers.2.residual_group.blocks.0.attn.proj_drop: Dropout
-  module.layers.2.residual_group.blocks.0.attn.softmax: Softmax
-  module.layers.2.residual_group.blocks.0.drop_path: DropPath
-  module.layers.2.residual_group.blocks.0.norm2: LayerNorm
-  module.layers.2.residual_group.blocks.0.mlp: Mlp
-  module.layers.2.residual_group.blocks.0.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.0.mlp.fc1: 120 channels
-  module.layers.2.residual_group.blocks.0.mlp.act: GELU
-  module.layers.2.residual_group.blocks.0.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.0.mlp.fc2: 60 channels
-  module.layers.2.residual_group.blocks.0.mlp.drop: Dropout
-  module.layers.2.residual_group.blocks.1: SwinTransformerBlock
-  ? Added attention head mask for module.layers.2.residual_group.blocks.1: 6 heads
-  module.layers.2.residual_group.blocks.1.norm1: LayerNorm
-  module.layers.2.residual_group.blocks.1.attn: WindowAttention
-  ? Added attention head mask for module.layers.2.residual_group.blocks.1.attn: 6 heads
-  module.layers.2.residual_group.blocks.1.attn.qkv: Linear
-  module.layers.2.residual_group.blocks.1.attn.attn_drop: Dropout
-  module.layers.2.residual_group.blocks.1.attn.proj: Linear
-  module.layers.2.residual_group.blocks.1.attn.proj_drop: Dropout
-  module.layers.2.residual_group.blocks.1.attn.softmax: Softmax
-  module.layers.2.residual_group.blocks.1.drop_path: DropPath
-  module.layers.2.residual_group.blocks.1.norm2: LayerNorm
-  module.layers.2.residual_group.blocks.1.mlp: Mlp
-  module.layers.2.residual_group.blocks.1.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.1.mlp.fc1: 120 channels
-  module.layers.2.residual_group.blocks.1.mlp.act: GELU
-  module.layers.2.residual_group.blocks.1.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.1.mlp.fc2: 60 channels
-  module.layers.2.residual_group.blocks.1.mlp.drop: Dropout
-  module.layers.2.residual_group.blocks.2: SwinTransformerBlock
-  ? Added attention head mask for module.layers.2.residual_group.blocks.2: 6 heads
-  module.layers.2.residual_group.blocks.2.norm1: LayerNorm
-  module.layers.2.residual_group.blocks.2.attn: WindowAttention
-  ? Added attention head mask for module.layers.2.residual_group.blocks.2.attn: 6 heads
-  module.layers.2.residual_group.blocks.2.attn.qkv: Linear
-  module.layers.2.residual_group.blocks.2.attn.attn_drop: Dropout
-  module.layers.2.residual_group.blocks.2.attn.proj: Linear
-  module.layers.2.residual_group.blocks.2.attn.proj_drop: Dropout
-  module.layers.2.residual_group.blocks.2.attn.softmax: Softmax
-  module.layers.2.residual_group.blocks.2.drop_path: DropPath
-  module.layers.2.residual_group.blocks.2.norm2: LayerNorm
-  module.layers.2.residual_group.blocks.2.mlp: Mlp
-  module.layers.2.residual_group.blocks.2.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.2.mlp.fc1: 120 channels
-  module.layers.2.residual_group.blocks.2.mlp.act: GELU
-  module.layers.2.residual_group.blocks.2.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.2.mlp.fc2: 60 channels
-  module.layers.2.residual_group.blocks.2.mlp.drop: Dropout
-  module.layers.2.residual_group.blocks.3: SwinTransformerBlock
-  ? Added attention head mask for module.layers.2.residual_group.blocks.3: 6 heads
-  module.layers.2.residual_group.blocks.3.norm1: LayerNorm
-  module.layers.2.residual_group.blocks.3.attn: WindowAttention
-  ? Added attention head mask for module.layers.2.residual_group.blocks.3.attn: 6 heads
-  module.layers.2.residual_group.blocks.3.attn.qkv: Linear
-  module.layers.2.residual_group.blocks.3.attn.attn_drop: Dropout
-  module.layers.2.residual_group.blocks.3.attn.proj: Linear
-  module.layers.2.residual_group.blocks.3.attn.proj_drop: Dropout
-  module.layers.2.residual_group.blocks.3.attn.softmax: Softmax
-  module.layers.2.residual_group.blocks.3.drop_path: DropPath
-  module.layers.2.residual_group.blocks.3.norm2: LayerNorm
-  module.layers.2.residual_group.blocks.3.mlp: Mlp
-  module.layers.2.residual_group.blocks.3.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.3.mlp.fc1: 120 channels
-  module.layers.2.residual_group.blocks.3.mlp.act: GELU
-  module.layers.2.residual_group.blocks.3.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.3.mlp.fc2: 60 channels
-  module.layers.2.residual_group.blocks.3.mlp.drop: Dropout
-  module.layers.2.residual_group.blocks.4: SwinTransformerBlock
-  ? Added attention head mask for module.layers.2.residual_group.blocks.4: 6 heads
-  module.layers.2.residual_group.blocks.4.norm1: LayerNorm
-  module.layers.2.residual_group.blocks.4.attn: WindowAttention
-  ? Added attention head mask for module.layers.2.residual_group.blocks.4.attn: 6 heads
-  module.layers.2.residual_group.blocks.4.attn.qkv: Linear
-  module.layers.2.residual_group.blocks.4.attn.attn_drop: Dropout
-  module.layers.2.residual_group.blocks.4.attn.proj: Linear
-  module.layers.2.residual_group.blocks.4.attn.proj_drop: Dropout
-  module.layers.2.residual_group.blocks.4.attn.softmax: Softmax
-  module.layers.2.residual_group.blocks.4.drop_path: DropPath
-  module.layers.2.residual_group.blocks.4.norm2: LayerNorm
-  module.layers.2.residual_group.blocks.4.mlp: Mlp
-  module.layers.2.residual_group.blocks.4.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.4.mlp.fc1: 120 channels
-  module.layers.2.residual_group.blocks.4.mlp.act: GELU
-  module.layers.2.residual_group.blocks.4.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.4.mlp.fc2: 60 channels
-  module.layers.2.residual_group.blocks.4.mlp.drop: Dropout
-  module.layers.2.residual_group.blocks.5: SwinTransformerBlock
-  ? Added attention head mask for module.layers.2.residual_group.blocks.5: 6 heads
-  module.layers.2.residual_group.blocks.5.norm1: LayerNorm
-  module.layers.2.residual_group.blocks.5.attn: WindowAttention
-  ? Added attention head mask for module.layers.2.residual_group.blocks.5.attn: 6 heads
-  module.layers.2.residual_group.blocks.5.attn.qkv: Linear
-  module.layers.2.residual_group.blocks.5.attn.attn_drop: Dropout
-  module.layers.2.residual_group.blocks.5.attn.proj: Linear
-  module.layers.2.residual_group.blocks.5.attn.proj_drop: Dropout
-  module.layers.2.residual_group.blocks.5.attn.softmax: Softmax
-  module.layers.2.residual_group.blocks.5.drop_path: DropPath
-  module.layers.2.residual_group.blocks.5.norm2: LayerNorm
-  module.layers.2.residual_group.blocks.5.mlp: Mlp
-  module.layers.2.residual_group.blocks.5.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.5.mlp.fc1: 120 channels
-  module.layers.2.residual_group.blocks.5.mlp.act: GELU
-  module.layers.2.residual_group.blocks.5.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.2.residual_group.blocks.5.mlp.fc2: 60 channels
-  module.layers.2.residual_group.blocks.5.mlp.drop: Dropout
-  module.layers.2.conv: Conv2d
-  module.layers.2.patch_embed: PatchEmbed
-  module.layers.2.patch_unembed: PatchUnEmbed
-  module.layers.3: RSTB
-  module.layers.3.residual_group: BasicLayer
-  module.layers.3.residual_group.blocks: ModuleList
-  module.layers.3.residual_group.blocks.0: SwinTransformerBlock
-  ? Added attention head mask for module.layers.3.residual_group.blocks.0: 6 heads
-  module.layers.3.residual_group.blocks.0.norm1: LayerNorm
-  module.layers.3.residual_group.blocks.0.attn: WindowAttention
-  ? Added attention head mask for module.layers.3.residual_group.blocks.0.attn: 6 heads
-  module.layers.3.residual_group.blocks.0.attn.qkv: Linear
-  module.layers.3.residual_group.blocks.0.attn.attn_drop: Dropout
-  module.layers.3.residual_group.blocks.0.attn.proj: Linear
-  module.layers.3.residual_group.blocks.0.attn.proj_drop: Dropout
-  module.layers.3.residual_group.blocks.0.attn.softmax: Softmax
-  module.layers.3.residual_group.blocks.0.drop_path: DropPath
-  module.layers.3.residual_group.blocks.0.norm2: LayerNorm
-  module.layers.3.residual_group.blocks.0.mlp: Mlp
-  module.layers.3.residual_group.blocks.0.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.0.mlp.fc1: 120 channels
-  module.layers.3.residual_group.blocks.0.mlp.act: GELU
-  module.layers.3.residual_group.blocks.0.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.0.mlp.fc2: 60 channels
-  module.layers.3.residual_group.blocks.0.mlp.drop: Dropout
-  module.layers.3.residual_group.blocks.1: SwinTransformerBlock
-  ? Added attention head mask for module.layers.3.residual_group.blocks.1: 6 heads
-  module.layers.3.residual_group.blocks.1.norm1: LayerNorm
-  module.layers.3.residual_group.blocks.1.attn: WindowAttention
-  ? Added attention head mask for module.layers.3.residual_group.blocks.1.attn: 6 heads
-  module.layers.3.residual_group.blocks.1.attn.qkv: Linear
-  module.layers.3.residual_group.blocks.1.attn.attn_drop: Dropout
-  module.layers.3.residual_group.blocks.1.attn.proj: Linear
-  module.layers.3.residual_group.blocks.1.attn.proj_drop: Dropout
-  module.layers.3.residual_group.blocks.1.attn.softmax: Softmax
-  module.layers.3.residual_group.blocks.1.drop_path: DropPath
-  module.layers.3.residual_group.blocks.1.norm2: LayerNorm
-  module.layers.3.residual_group.blocks.1.mlp: Mlp
-  module.layers.3.residual_group.blocks.1.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.1.mlp.fc1: 120 channels
-  module.layers.3.residual_group.blocks.1.mlp.act: GELU
-  module.layers.3.residual_group.blocks.1.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.1.mlp.fc2: 60 channels
-  module.layers.3.residual_group.blocks.1.mlp.drop: Dropout
-  module.layers.3.residual_group.blocks.2: SwinTransformerBlock
-  ? Added attention head mask for module.layers.3.residual_group.blocks.2: 6 heads
-  module.layers.3.residual_group.blocks.2.norm1: LayerNorm
-  module.layers.3.residual_group.blocks.2.attn: WindowAttention
-  ? Added attention head mask for module.layers.3.residual_group.blocks.2.attn: 6 heads
-  module.layers.3.residual_group.blocks.2.attn.qkv: Linear
-  module.layers.3.residual_group.blocks.2.attn.attn_drop: Dropout
-  module.layers.3.residual_group.blocks.2.attn.proj: Linear
-  module.layers.3.residual_group.blocks.2.attn.proj_drop: Dropout
-  module.layers.3.residual_group.blocks.2.attn.softmax: Softmax
-  module.layers.3.residual_group.blocks.2.drop_path: DropPath
-  module.layers.3.residual_group.blocks.2.norm2: LayerNorm
-  module.layers.3.residual_group.blocks.2.mlp: Mlp
-  module.layers.3.residual_group.blocks.2.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.2.mlp.fc1: 120 channels
-  module.layers.3.residual_group.blocks.2.mlp.act: GELU
-  module.layers.3.residual_group.blocks.2.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.2.mlp.fc2: 60 channels
-  module.layers.3.residual_group.blocks.2.mlp.drop: Dropout
-  module.layers.3.residual_group.blocks.3: SwinTransformerBlock
-  ? Added attention head mask for module.layers.3.residual_group.blocks.3: 6 heads
-  module.layers.3.residual_group.blocks.3.norm1: LayerNorm
-  module.layers.3.residual_group.blocks.3.attn: WindowAttention
-  ? Added attention head mask for module.layers.3.residual_group.blocks.3.attn: 6 heads
-  module.layers.3.residual_group.blocks.3.attn.qkv: Linear
-  module.layers.3.residual_group.blocks.3.attn.attn_drop: Dropout
-  module.layers.3.residual_group.blocks.3.attn.proj: Linear
-  module.layers.3.residual_group.blocks.3.attn.proj_drop: Dropout
-  module.layers.3.residual_group.blocks.3.attn.softmax: Softmax
-  module.layers.3.residual_group.blocks.3.drop_path: DropPath
-  module.layers.3.residual_group.blocks.3.norm2: LayerNorm
-  module.layers.3.residual_group.blocks.3.mlp: Mlp
-  module.layers.3.residual_group.blocks.3.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.3.mlp.fc1: 120 channels
-  module.layers.3.residual_group.blocks.3.mlp.act: GELU
-  module.layers.3.residual_group.blocks.3.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.3.mlp.fc2: 60 channels
-  module.layers.3.residual_group.blocks.3.mlp.drop: Dropout
-  module.layers.3.residual_group.blocks.4: SwinTransformerBlock
-  ? Added attention head mask for module.layers.3.residual_group.blocks.4: 6 heads
-  module.layers.3.residual_group.blocks.4.norm1: LayerNorm
-  module.layers.3.residual_group.blocks.4.attn: WindowAttention
-  ? Added attention head mask for module.layers.3.residual_group.blocks.4.attn: 6 heads
-  module.layers.3.residual_group.blocks.4.attn.qkv: Linear
-  module.layers.3.residual_group.blocks.4.attn.attn_drop: Dropout
-  module.layers.3.residual_group.blocks.4.attn.proj: Linear
-  module.layers.3.residual_group.blocks.4.attn.proj_drop: Dropout
-  module.layers.3.residual_group.blocks.4.attn.softmax: Softmax
-  module.layers.3.residual_group.blocks.4.drop_path: DropPath
-  module.layers.3.residual_group.blocks.4.norm2: LayerNorm
-  module.layers.3.residual_group.blocks.4.mlp: Mlp
-  module.layers.3.residual_group.blocks.4.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.4.mlp.fc1: 120 channels
-  module.layers.3.residual_group.blocks.4.mlp.act: GELU
-  module.layers.3.residual_group.blocks.4.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.4.mlp.fc2: 60 channels
-  module.layers.3.residual_group.blocks.4.mlp.drop: Dropout
-  module.layers.3.residual_group.blocks.5: SwinTransformerBlock
-  ? Added attention head mask for module.layers.3.residual_group.blocks.5: 6 heads
-  module.layers.3.residual_group.blocks.5.norm1: LayerNorm
-  module.layers.3.residual_group.blocks.5.attn: WindowAttention
-  ? Added attention head mask for module.layers.3.residual_group.blocks.5.attn: 6 heads
-  module.layers.3.residual_group.blocks.5.attn.qkv: Linear
-  module.layers.3.residual_group.blocks.5.attn.attn_drop: Dropout
-  module.layers.3.residual_group.blocks.5.attn.proj: Linear
-  module.layers.3.residual_group.blocks.5.attn.proj_drop: Dropout
-  module.layers.3.residual_group.blocks.5.attn.softmax: Softmax
-  module.layers.3.residual_group.blocks.5.drop_path: DropPath
-  module.layers.3.residual_group.blocks.5.norm2: LayerNorm
-  module.layers.3.residual_group.blocks.5.mlp: Mlp
-  module.layers.3.residual_group.blocks.5.mlp.fc1: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.5.mlp.fc1: 120 channels
-  module.layers.3.residual_group.blocks.5.mlp.act: GELU
-  module.layers.3.residual_group.blocks.5.mlp.fc2: Linear
-  ? Added MLP channel mask for module.layers.3.residual_group.blocks.5.mlp.fc2: 60 channels
-  module.layers.3.residual_group.blocks.5.mlp.drop: Dropout
-  module.layers.3.conv: Conv2d
-  module.layers.3.patch_embed: PatchEmbed
-  module.layers.3.patch_unembed: PatchUnEmbed
-Initialized 48 attention masks and 48 channel masks
+Target reduction: 65.0%
+Schedule type: exponential
+Number of iterations: 5
+Using existing masks: 24 attention + 48 channel layers
 
 ============================================================
-PRUNING ITERATION 1/3
+PRUNING ITERATION 1/5
 ============================================================
-Target ratio: 13.3%
+Target ratio: 32.5%
+Collecting importance scores with memory optimization...
+Using memory-efficient fallback approach due to GPU memory constraints...
+Computing importance scores from model weights...
+Updated importance scores for 72 layers using weight-based analysis
 
 Pruning Plan Summary:
-  Target ratio: 13.3%
-  Estimated reduction: 74.0%
+  Target ratio: 32.5%
+  Estimated reduction: 86.6%
+  Model Surgery: ? Enabled
   Parameters before pruning: 910,152
-Attention layer module.layers.0.residual_group.blocks.0: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.0: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.0.attn: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.0.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.1: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.1: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.1.attn: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.1.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.0.residual_group.blocks.2: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.2: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.2.attn: 5 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.2.attn: pruned 5 heads (kept 1)
-Attention layer module.layers.0.residual_group.blocks.3: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.3: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.3.attn: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.3.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.4: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.4: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.4.attn: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.4.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.5: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.5: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.5.attn: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.5.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.0: 4 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.0: pruned 4 heads (kept 2)
-Attention layer module.layers.1.residual_group.blocks.0.attn: 4 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.0.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.1.residual_group.blocks.1: 4 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.1: pruned 4 heads (kept 2)
-Attention layer module.layers.1.residual_group.blocks.1.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.1.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.2: 5 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.2: pruned 5 heads (kept 1)
-Attention layer module.layers.1.residual_group.blocks.2.attn: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.2.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.1.residual_group.blocks.3: 4 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.3: pruned 4 heads (kept 2)
-Attention layer module.layers.1.residual_group.blocks.3.attn: 1 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.3.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.4: 4 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.4: pruned 4 heads (kept 2)
-Attention layer module.layers.1.residual_group.blocks.4.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.4.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.5: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.5: pruned 3 heads (kept 3)
-Attention layer module.layers.1.residual_group.blocks.5.attn: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.5.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.0: 5 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.0: pruned 5 heads (kept 1)
-Attention layer module.layers.2.residual_group.blocks.0.attn: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.0.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.1: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.1: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.1.attn: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.1.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.2: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.2: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.2.attn: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.2.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.3: 4 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.3: pruned 4 heads (kept 2)
-Attention layer module.layers.2.residual_group.blocks.3.attn: 4 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.3.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.2.residual_group.blocks.4: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.4: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.4.attn: 4 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.4.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.2.residual_group.blocks.5: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.5: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.5.attn: 4 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.5.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.3.residual_group.blocks.0: 3 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.0: pruned 3 heads (kept 3)
-Attention layer module.layers.3.residual_group.blocks.0.attn: 3 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.0.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.3.residual_group.blocks.1: 4 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.1: pruned 4 heads (kept 2)
-Attention layer module.layers.3.residual_group.blocks.1.attn: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.1.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.2: 3 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.2: pruned 3 heads (kept 3)
-Attention layer module.layers.3.residual_group.blocks.2.attn: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.2.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.3: 4 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.3: pruned 4 heads (kept 2)
-Attention layer module.layers.3.residual_group.blocks.3.attn: 4 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.3.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.3.residual_group.blocks.4: 4 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.4: pruned 4 heads (kept 2)
-Attention layer module.layers.3.residual_group.blocks.4.attn: 5 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.4.attn: pruned 5 heads (kept 1)
-Attention layer module.layers.3.residual_group.blocks.5: 3 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.5: pruned 3 heads (kept 3)
-Attention layer module.layers.3.residual_group.blocks.5.attn: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.5.attn: pruned 2 heads (kept 4)
-MLP layer module.layers.0.residual_group.blocks.0.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.0.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.0.residual_group.blocks.0.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.0.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.0.residual_group.blocks.1.mlp.fc1: 7 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.1.mlp.fc1: pruned 7 channels (kept 113)
-MLP layer module.layers.0.residual_group.blocks.1.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.1.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.0.residual_group.blocks.2.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.2.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.0.residual_group.blocks.2.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.2.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.0.residual_group.blocks.3.mlp.fc1: 9 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.3.mlp.fc1: pruned 9 channels (kept 111)
-MLP layer module.layers.0.residual_group.blocks.3.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.3.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.0.residual_group.blocks.4.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.4.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.0.residual_group.blocks.4.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.4.mlp.fc2: pruned 4 channels (kept 56)
-MLP layer module.layers.0.residual_group.blocks.5.mlp.fc1: 7 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.5.mlp.fc1: pruned 7 channels (kept 113)
-MLP layer module.layers.0.residual_group.blocks.5.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.5.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.1.residual_group.blocks.0.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.0.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.1.residual_group.blocks.0.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.0.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.1.residual_group.blocks.1.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.1.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.1.residual_group.blocks.1.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.1.mlp.fc2: pruned 4 channels (kept 56)
-MLP layer module.layers.1.residual_group.blocks.2.mlp.fc1: 6 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.2.mlp.fc1: pruned 6 channels (kept 114)
-MLP layer module.layers.1.residual_group.blocks.2.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.2.mlp.fc2: pruned 4 channels (kept 56)
-MLP layer module.layers.1.residual_group.blocks.3.mlp.fc1: 7 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.3.mlp.fc1: pruned 7 channels (kept 113)
-MLP layer module.layers.1.residual_group.blocks.3.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.3.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.1.residual_group.blocks.4.mlp.fc1: 7 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.4.mlp.fc1: pruned 7 channels (kept 113)
-MLP layer module.layers.1.residual_group.blocks.4.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.4.mlp.fc2: pruned 4 channels (kept 56)
-MLP layer module.layers.1.residual_group.blocks.5.mlp.fc1: 6 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.5.mlp.fc1: pruned 6 channels (kept 114)
-MLP layer module.layers.1.residual_group.blocks.5.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.5.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.2.residual_group.blocks.0.mlp.fc1: 9 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.0.mlp.fc1: pruned 9 channels (kept 111)
-MLP layer module.layers.2.residual_group.blocks.0.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.0.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.2.residual_group.blocks.1.mlp.fc1: 9 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.1.mlp.fc1: pruned 9 channels (kept 111)
-MLP layer module.layers.2.residual_group.blocks.1.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.1.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.2.residual_group.blocks.2.mlp.fc1: 9 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.2.mlp.fc1: pruned 9 channels (kept 111)
-MLP layer module.layers.2.residual_group.blocks.2.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.2.mlp.fc2: pruned 4 channels (kept 56)
-MLP layer module.layers.2.residual_group.blocks.3.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.3.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.2.residual_group.blocks.3.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.3.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.2.residual_group.blocks.4.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.4.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.2.residual_group.blocks.4.mlp.fc2: 2 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.4.mlp.fc2: pruned 2 channels (kept 58)
-MLP layer module.layers.2.residual_group.blocks.5.mlp.fc1: 7 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.5.mlp.fc1: pruned 7 channels (kept 113)
-MLP layer module.layers.2.residual_group.blocks.5.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.5.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.3.residual_group.blocks.0.mlp.fc1: 9 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.0.mlp.fc1: pruned 9 channels (kept 111)
-MLP layer module.layers.3.residual_group.blocks.0.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.0.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.3.residual_group.blocks.1.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.1.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.3.residual_group.blocks.1.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.1.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.3.residual_group.blocks.2.mlp.fc1: 8 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.2.mlp.fc1: pruned 8 channels (kept 112)
-MLP layer module.layers.3.residual_group.blocks.2.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.2.mlp.fc2: pruned 4 channels (kept 56)
-MLP layer module.layers.3.residual_group.blocks.3.mlp.fc1: 6 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.3.mlp.fc1: pruned 6 channels (kept 114)
-MLP layer module.layers.3.residual_group.blocks.3.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.3.mlp.fc2: pruned 4 channels (kept 56)
-MLP layer module.layers.3.residual_group.blocks.4.mlp.fc1: 7 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.4.mlp.fc1: pruned 7 channels (kept 113)
-MLP layer module.layers.3.residual_group.blocks.4.mlp.fc2: 3 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.4.mlp.fc2: pruned 3 channels (kept 57)
-MLP layer module.layers.3.residual_group.blocks.5.mlp.fc1: 7 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.5.mlp.fc1: pruned 7 channels (kept 113)
-MLP layer module.layers.3.residual_group.blocks.5.mlp.fc2: 4 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.5.mlp.fc2: pruned 4 channels (kept 56)
-  Parameters after pruning: 777,746
-  Actual reduction: 14.5%
+
+?? Step 1: Identifying components to prune...
+  Marking attention layer module.layers.0.residual_group.blocks.0.attn: 2 heads to prune
+  ? HARD pruned 2 attention heads in module.layers.0.residual_group.blocks.0.attn
+  Marking attention layer module.layers.0.residual_group.blocks.1.attn: 4 heads to prune
+  ? HARD pruned 4 attention heads in module.layers.0.residual_group.blocks.1.attn
+  Marking attention layer module.layers.0.residual_group.blocks.2.attn: 3 heads to prune
+  ? HARD pruned 3 attention heads in module.layers.0.residual_group.blocks.2.attn
+  Marking attention layer module.layers.0.residual_group.blocks.3.attn: 5 heads to prune
+  ? HARD pruned 5 attention heads in module.layers.0.residual_group.blocks.3.attn
+  Marking attention layer module.layers.0.residual_group.blocks.4.attn: 3 heads to prune
+  ? HARD pruned 3 attention heads in module.layers.0.residual_group.blocks.4.attn
+  Marking attention layer module.layers.0.residual_group.blocks.5.attn: 4 heads to prune
+  ? HARD pruned 4 attention heads in module.layers.0.residual_group.blocks.5.attn
+  Marking attention layer module.layers.1.residual_group.blocks.0.attn: 3 heads to prune
+  ? HARD pruned 3 attention heads in module.layers.1.residual_group.blocks.0.attn
+  Marking attention layer module.layers.1.residual_group.blocks.1.attn: 3 heads to prune
+  ? HARD pruned 3 attention heads in module.layers.1.residual_group.blocks.1.attn
+  Marking attention layer module.layers.1.residual_group.blocks.2.attn: 5 heads to prune
+  ? HARD pruned 5 attention heads in module.layers.1.residual_group.blocks.2.attn
+  Marking attention layer module.layers.1.residual_group.blocks.3.attn: 2 heads to prune
+  ? HARD pruned 2 attention heads in module.layers.1.residual_group.blocks.3.attn
+  Marking attention layer module.layers.1.residual_group.blocks.4.attn: 2 heads to prune
+  ? HARD pruned 2 attention heads in module.layers.1.residual_group.blocks.4.attn
+  Marking attention layer module.layers.1.residual_group.blocks.5.attn: 3 heads to prune
+  ? HARD pruned 3 attention heads in module.layers.1.residual_group.blocks.5.attn
+  Marking attention layer module.layers.2.residual_group.blocks.0.attn: 1 heads to prune
+  ? HARD pruned 1 attention heads in module.layers.2.residual_group.blocks.0.attn
+  Marking attention layer module.layers.2.residual_group.blocks.1.attn: 2 heads to prune
+  ? HARD pruned 2 attention heads in module.layers.2.residual_group.blocks.1.attn
+  Marking attention layer module.layers.2.residual_group.blocks.2.attn: 4 heads to prune
+  ? HARD pruned 4 attention heads in module.layers.2.residual_group.blocks.2.attn
+  Marking attention layer module.layers.2.residual_group.blocks.3.attn: 2 heads to prune
+  ? HARD pruned 2 attention heads in module.layers.2.residual_group.blocks.3.attn
+  Marking attention layer module.layers.2.residual_group.blocks.4.attn: 2 heads to prune
+  ? HARD pruned 2 attention heads in module.layers.2.residual_group.blocks.4.attn
+  Marking attention layer module.layers.2.residual_group.blocks.5.attn: 1 heads to prune
+  ? HARD pruned 1 attention heads in module.layers.2.residual_group.blocks.5.attn
+  Marking attention layer module.layers.3.residual_group.blocks.0.attn: 1 heads to prune
+  ? HARD pruned 1 attention heads in module.layers.3.residual_group.blocks.0.attn
+  Marking attention layer module.layers.3.residual_group.blocks.1.attn: 5 heads to prune
+  ? HARD pruned 5 attention heads in module.layers.3.residual_group.blocks.1.attn
+  Marking attention layer module.layers.3.residual_group.blocks.2.attn: 1 heads to prune
+  ? HARD pruned 1 attention heads in module.layers.3.residual_group.blocks.2.attn
+  Marking attention layer module.layers.3.residual_group.blocks.3.attn: 2 heads to prune
+  ? HARD pruned 2 attention heads in module.layers.3.residual_group.blocks.3.attn
+  Marking attention layer module.layers.3.residual_group.blocks.4.attn: 1 heads to prune
+  ? HARD pruned 1 attention heads in module.layers.3.residual_group.blocks.4.attn
+  Marking attention layer module.layers.3.residual_group.blocks.5.attn: 1 heads to prune
+  ? HARD pruned 1 attention heads in module.layers.3.residual_group.blocks.5.attn
+  Marking MLP layer module.layers.0.residual_group.blocks.0.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.0.residual_group.blocks.0.mlp.fc1
+  Marking MLP layer module.layers.0.residual_group.blocks.0.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.0.residual_group.blocks.0.mlp.fc2
+  Marking MLP layer module.layers.0.residual_group.blocks.1.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.0.residual_group.blocks.1.mlp.fc1
+  Marking MLP layer module.layers.0.residual_group.blocks.1.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.0.residual_group.blocks.1.mlp.fc2
+  Marking MLP layer module.layers.0.residual_group.blocks.2.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.0.residual_group.blocks.2.mlp.fc1
+  Marking MLP layer module.layers.0.residual_group.blocks.2.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.0.residual_group.blocks.2.mlp.fc2
+  Marking MLP layer module.layers.0.residual_group.blocks.3.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.0.residual_group.blocks.3.mlp.fc1
+  Marking MLP layer module.layers.0.residual_group.blocks.3.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.0.residual_group.blocks.3.mlp.fc2
+  Marking MLP layer module.layers.0.residual_group.blocks.4.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.0.residual_group.blocks.4.mlp.fc1
+  Marking MLP layer module.layers.0.residual_group.blocks.4.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.0.residual_group.blocks.4.mlp.fc2
+  Marking MLP layer module.layers.0.residual_group.blocks.5.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.0.residual_group.blocks.5.mlp.fc1
+  Marking MLP layer module.layers.0.residual_group.blocks.5.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.0.residual_group.blocks.5.mlp.fc2
+  Marking MLP layer module.layers.1.residual_group.blocks.0.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.1.residual_group.blocks.0.mlp.fc1
+  Marking MLP layer module.layers.1.residual_group.blocks.0.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.1.residual_group.blocks.0.mlp.fc2
+  Marking MLP layer module.layers.1.residual_group.blocks.1.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.1.residual_group.blocks.1.mlp.fc1
+  Marking MLP layer module.layers.1.residual_group.blocks.1.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.1.residual_group.blocks.1.mlp.fc2
+  Marking MLP layer module.layers.1.residual_group.blocks.2.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.1.residual_group.blocks.2.mlp.fc1
+  Marking MLP layer module.layers.1.residual_group.blocks.2.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.1.residual_group.blocks.2.mlp.fc2
+  Marking MLP layer module.layers.1.residual_group.blocks.3.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.1.residual_group.blocks.3.mlp.fc1
+  Marking MLP layer module.layers.1.residual_group.blocks.3.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.1.residual_group.blocks.3.mlp.fc2
+  Marking MLP layer module.layers.1.residual_group.blocks.4.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.1.residual_group.blocks.4.mlp.fc1
+  Marking MLP layer module.layers.1.residual_group.blocks.4.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.1.residual_group.blocks.4.mlp.fc2
+  Marking MLP layer module.layers.1.residual_group.blocks.5.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.1.residual_group.blocks.5.mlp.fc1
+  Marking MLP layer module.layers.1.residual_group.blocks.5.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.1.residual_group.blocks.5.mlp.fc2
+  Marking MLP layer module.layers.2.residual_group.blocks.0.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.2.residual_group.blocks.0.mlp.fc1
+  Marking MLP layer module.layers.2.residual_group.blocks.0.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.2.residual_group.blocks.0.mlp.fc2
+  Marking MLP layer module.layers.2.residual_group.blocks.1.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.2.residual_group.blocks.1.mlp.fc1
+  Marking MLP layer module.layers.2.residual_group.blocks.1.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.2.residual_group.blocks.1.mlp.fc2
+  Marking MLP layer module.layers.2.residual_group.blocks.2.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.2.residual_group.blocks.2.mlp.fc1
+  Marking MLP layer module.layers.2.residual_group.blocks.2.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.2.residual_group.blocks.2.mlp.fc2
+  Marking MLP layer module.layers.2.residual_group.blocks.3.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.2.residual_group.blocks.3.mlp.fc1
+  Marking MLP layer module.layers.2.residual_group.blocks.3.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.2.residual_group.blocks.3.mlp.fc2
+  Marking MLP layer module.layers.2.residual_group.blocks.4.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.2.residual_group.blocks.4.mlp.fc1
+  Marking MLP layer module.layers.2.residual_group.blocks.4.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.2.residual_group.blocks.4.mlp.fc2
+  Marking MLP layer module.layers.2.residual_group.blocks.5.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.2.residual_group.blocks.5.mlp.fc1
+  Marking MLP layer module.layers.2.residual_group.blocks.5.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.2.residual_group.blocks.5.mlp.fc2
+  Marking MLP layer module.layers.3.residual_group.blocks.0.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.3.residual_group.blocks.0.mlp.fc1
+  Marking MLP layer module.layers.3.residual_group.blocks.0.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.3.residual_group.blocks.0.mlp.fc2
+  Marking MLP layer module.layers.3.residual_group.blocks.1.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.3.residual_group.blocks.1.mlp.fc1
+  Marking MLP layer module.layers.3.residual_group.blocks.1.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.3.residual_group.blocks.1.mlp.fc2
+  Marking MLP layer module.layers.3.residual_group.blocks.2.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.3.residual_group.blocks.2.mlp.fc1
+  Marking MLP layer module.layers.3.residual_group.blocks.2.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.3.residual_group.blocks.2.mlp.fc2
+  Marking MLP layer module.layers.3.residual_group.blocks.3.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.3.residual_group.blocks.3.mlp.fc1
+  Marking MLP layer module.layers.3.residual_group.blocks.3.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.3.residual_group.blocks.3.mlp.fc2
+  Marking MLP layer module.layers.3.residual_group.blocks.4.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.3.residual_group.blocks.4.mlp.fc1
+  Marking MLP layer module.layers.3.residual_group.blocks.4.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.3.residual_group.blocks.4.mlp.fc2
+  Marking MLP layer module.layers.3.residual_group.blocks.5.mlp.fc1: 58 channels to prune
+  ? HARD pruned 58 MLP channels in module.layers.3.residual_group.blocks.5.mlp.fc1
+  Marking MLP layer module.layers.3.residual_group.blocks.5.mlp.fc2: 29 channels to prune
+  ? HARD pruned 29 MLP channels in module.layers.3.residual_group.blocks.5.mlp.fc2
+
+?? Step 2: Performing Model Surgery...
+
+?? Starting Model Surgery: Physical removal of pruned components...
+  ? Rebuilt attention: module.layers.0.residual_group.blocks.0.attn (6 ? 4 heads)
+  ? Rebuilt attention: module.layers.0.residual_group.blocks.1.attn (6 ? 2 heads)
+  ? Rebuilt attention: module.layers.0.residual_group.blocks.2.attn (6 ? 3 heads)
+  ? Rebuilt attention: module.layers.0.residual_group.blocks.3.attn (6 ? 1 heads)
+  ? Rebuilt attention: module.layers.0.residual_group.blocks.4.attn (6 ? 3 heads)
+  ? Rebuilt attention: module.layers.0.residual_group.blocks.5.attn (6 ? 2 heads)
+  ? Rebuilt attention: module.layers.1.residual_group.blocks.0.attn (6 ? 3 heads)
+  ? Rebuilt attention: module.layers.1.residual_group.blocks.1.attn (6 ? 3 heads)
+  ? Rebuilt attention: module.layers.1.residual_group.blocks.2.attn (6 ? 1 heads)
+  ? Rebuilt attention: module.layers.1.residual_group.blocks.3.attn (6 ? 4 heads)
+  ? Rebuilt attention: module.layers.1.residual_group.blocks.4.attn (6 ? 4 heads)
+  ? Rebuilt attention: module.layers.1.residual_group.blocks.5.attn (6 ? 3 heads)
+  ? Rebuilt attention: module.layers.2.residual_group.blocks.0.attn (6 ? 5 heads)
+  ? Rebuilt attention: module.layers.2.residual_group.blocks.1.attn (6 ? 4 heads)
+  ? Rebuilt attention: module.layers.2.residual_group.blocks.2.attn (6 ? 2 heads)
+  ? Rebuilt attention: module.layers.2.residual_group.blocks.3.attn (6 ? 4 heads)
+  ? Rebuilt attention: module.layers.2.residual_group.blocks.4.attn (6 ? 4 heads)
+  ? Rebuilt attention: module.layers.2.residual_group.blocks.5.attn (6 ? 5 heads)
+  ? Rebuilt attention: module.layers.3.residual_group.blocks.0.attn (6 ? 5 heads)
+  ? Rebuilt attention: module.layers.3.residual_group.blocks.1.attn (6 ? 1 heads)
+  ? Rebuilt attention: module.layers.3.residual_group.blocks.2.attn (6 ? 5 heads)
+  ? Rebuilt attention: module.layers.3.residual_group.blocks.3.attn (6 ? 4 heads)
+  ? Rebuilt attention: module.layers.3.residual_group.blocks.4.attn (6 ? 5 heads)
+  ? Rebuilt attention: module.layers.3.residual_group.blocks.5.attn (6 ? 5 heads)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.0.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.0.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.1.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.1.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.2.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.2.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.3.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.3.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.4.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.4.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.5.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.0.residual_group.blocks.5.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.0.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.0.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.1.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.1.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.2.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.2.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.3.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.3.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.4.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.4.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.5.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.1.residual_group.blocks.5.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.0.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.0.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.1.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.1.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.2.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.2.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.3.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.3.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.4.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.4.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.5.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.2.residual_group.blocks.5.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.0.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.0.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.1.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.1.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.2.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.2.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.3.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.3.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.4.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.4.mlp.fc2 (60 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.5.mlp.fc1 (120 ? 62 channels)
+  ? Rebuilt MLP: module.layers.3.residual_group.blocks.5.mlp.fc2 (60 ? 62 channels)
+
+? Model Surgery Complete!
+  ?? Parameters: 910,152 ? 577,110 (36.6% reduction)
+  ? FLOPs: 0.00G ? 0.00G (51.4% reduction)
+  ?? Attention layers rebuilt: 24
+  ?? MLP layers rebuilt: 48
+?? Updating mask manager with post-surgery dimensions...
+  ? Updated attention mask: module.layers.0.residual_group.blocks.0.attn ? 4 heads
+  ? Updated attention mask: module.layers.0.residual_group.blocks.1.attn ? 2 heads
+  ? Updated attention mask: module.layers.0.residual_group.blocks.2.attn ? 3 heads
+  ? Updated attention mask: module.layers.0.residual_group.blocks.3.attn ? 1 heads
+  ? Updated attention mask: module.layers.0.residual_group.blocks.4.attn ? 3 heads
+  ? Updated attention mask: module.layers.0.residual_group.blocks.5.attn ? 2 heads
+  ? Updated attention mask: module.layers.1.residual_group.blocks.0.attn ? 3 heads
+  ? Updated attention mask: module.layers.1.residual_group.blocks.1.attn ? 3 heads
+  ? Updated attention mask: module.layers.1.residual_group.blocks.2.attn ? 1 heads
+  ? Updated attention mask: module.layers.1.residual_group.blocks.3.attn ? 4 heads
+  ? Updated attention mask: module.layers.1.residual_group.blocks.4.attn ? 4 heads
+  ? Updated attention mask: module.layers.1.residual_group.blocks.5.attn ? 3 heads
+  ? Updated attention mask: module.layers.2.residual_group.blocks.0.attn ? 5 heads
+  ? Updated attention mask: module.layers.2.residual_group.blocks.1.attn ? 4 heads
+  ? Updated attention mask: module.layers.2.residual_group.blocks.2.attn ? 2 heads
+  ? Updated attention mask: module.layers.2.residual_group.blocks.3.attn ? 4 heads
+  ? Updated attention mask: module.layers.2.residual_group.blocks.4.attn ? 4 heads
+  ? Updated attention mask: module.layers.2.residual_group.blocks.5.attn ? 5 heads
+  ? Updated attention mask: module.layers.3.residual_group.blocks.0.attn ? 5 heads
+  ? Updated attention mask: module.layers.3.residual_group.blocks.1.attn ? 1 heads
+  ? Updated attention mask: module.layers.3.residual_group.blocks.2.attn ? 5 heads
+  ? Updated attention mask: module.layers.3.residual_group.blocks.3.attn ? 4 heads
+  ? Updated attention mask: module.layers.3.residual_group.blocks.4.attn ? 5 heads
+  ? Updated attention mask: module.layers.3.residual_group.blocks.5.attn ? 5 heads
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.0.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.0.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.1.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.1.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.2.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.2.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.3.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.3.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.4.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.4.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.5.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.0.residual_group.blocks.5.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.0.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.0.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.1.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.1.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.2.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.2.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.3.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.3.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.4.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.4.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.5.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.1.residual_group.blocks.5.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.0.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.0.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.1.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.1.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.2.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.2.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.3.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.3.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.4.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.4.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.5.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.2.residual_group.blocks.5.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.0.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.0.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.1.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.1.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.2.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.2.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.3.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.3.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.4.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.4.mlp.fc2 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.5.mlp.fc1 ? 62 channels
+  ? Updated MLP mask: module.layers.3.residual_group.blocks.5.mlp.fc2 ? 62 channels
+? Mask manager updated with 24 attention + 48 MLP layers
+
+?? Surgery Results:
+  Parameters after surgery: 577,110
+  Actual parameter reduction: 36.6%
+  Estimated FLOPs reduction: 51.4%
+  ? Real model size reduction achieved!
+?? Measuring baseline performance...
+?? ptflops not available, using manual FLOP estimation
+  Baseline - Params: 910,152, FLOPs: 2.01G, Time: 24.37ms
+?? Measuring pruned model performance...
+?? ptflops not available, using manual FLOP estimation
+  Pruned - Params: 577,110, FLOPs: 1.19G, Time: 22.42ms
+  ?? Speedup: 1.09x, FLOPs reduction: 40.9%
 Fine-tuning with knowledge distillation...
-Fine-tuning for 5 epochs...
-  Debug - MSE Loss: 0.000743
-  Debug - KD Loss: 0.000003
-  Debug - Total Loss: 0.000521
+Enhanced fine-tuning for 12 epochs with feature distillation...
+  Temporarily removed pruning hooks during fine-tuning to avoid gradient conflicts
+  Debug - Hard Loss: 0.000994
+  Debug - Output Distill Loss: 0.000487
+  Debug - Feature Loss: 0.000000
+  Debug - Total Loss: 0.000514
   Debug - LR: 1e-05
-  Debug - Gradient Norm: 0.000513
-  Fine-tuning epoch 1/5: Loss=0.000419 (batches: 8)
-  Fine-tuning epoch 2/5: Loss=0.000440 (batches: 8)
-  Fine-tuning epoch 3/5: Loss=0.000431 (batches: 8)
-  Fine-tuning epoch 4/5: Loss=0.000436 (batches: 8)
-  Fine-tuning epoch 5/5: Loss=0.000439 (batches: 8)
+  Epoch 1/12: Total=0.000564, Hard=0.001107, Output=0.000503, Feature=0.000000, LR=1.00e-05
+  Epoch 2/12: Total=0.000520, Hard=0.001054, Output=0.000408, Feature=0.000000, LR=1.00e-05
+  Epoch 3/12: Total=0.000453, Hard=0.000933, Output=0.000333, Feature=0.000000, LR=1.00e-05
+  Epoch 4/12: Total=0.000404, Hard=0.000847, Output=0.000271, Feature=0.000000, LR=1.00e-05
+  Epoch 5/12: Total=0.000447, Hard=0.000930, Output=0.000311, Feature=0.000000, LR=1.00e-05
+  Epoch 6/12: Total=0.000430, Hard=0.000902, Output=0.000287, Feature=0.000000, LR=1.00e-05
+  Epoch 7/12: Total=0.000432, Hard=0.000902, Output=0.000297, Feature=0.000000, LR=1.00e-05
+  Epoch 8/12: Total=0.000437, Hard=0.000910, Output=0.000303, Feature=0.000000, LR=1.00e-05
+  Epoch 9/12: Total=0.000413, Hard=0.000863, Output=0.000280, Feature=0.000000, LR=1.00e-05
+  Epoch 10/12: Total=0.000468, Hard=0.000960, Output=0.000348, Feature=0.000000, LR=1.00e-05
+  Epoch 11/12: Total=0.000390, Hard=0.000815, Output=0.000266, Feature=0.000000, LR=1.00e-05
+  Epoch 12/12: Total=0.000468, Hard=0.000976, Output=0.000324, Feature=0.000000, LR=1.00e-05
+Registered 72 pruning hooks for mask application
+  Re-registered pruning hooks after fine-tuning
 Iteration 1 completed
-PSNR: 38.67dB (drop: -0.00dB)
+PSNR: 36.90dB (drop: -2.44dB)
 
 ============================================================
-PRUNING ITERATION 2/3
+PRUNING ITERATION 2/5
 ============================================================
-Target ratio: 26.7%
-
-Pruning Plan Summary:
-  Target ratio: 26.7%
-  Estimated reduction: 67.9%
-  Parameters before pruning: 777,746
-Attention layer module.layers.0.residual_group.blocks.0: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.0: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.0.attn: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.0.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.1: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.1: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.1.attn: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.1.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.0.residual_group.blocks.2: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.2: pruned 1 heads (kept 5)
-Attention layer module.layers.0.residual_group.blocks.2.attn: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.2.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.3: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.3: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.3.attn: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.3.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.4: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.4: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.4.attn: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.4.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.5: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.5: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.5.attn: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.5.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.0: 1 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.0: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.0.attn: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.0.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.1.residual_group.blocks.1: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.1: pruned 3 heads (kept 3)
-Attention layer module.layers.1.residual_group.blocks.1.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.1.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.2: 5 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.2: pruned 5 heads (kept 1)
-Attention layer module.layers.1.residual_group.blocks.2.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.2.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.3: 1 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.3: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.3.attn: 1 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.3.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.4: 4 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.4: pruned 4 heads (kept 2)
-Attention layer module.layers.1.residual_group.blocks.4.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.4.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.5: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.5: pruned 3 heads (kept 3)
-Attention layer module.layers.1.residual_group.blocks.5.attn: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.5.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.0: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.0: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.0.attn: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.0.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.1: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.1: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.1.attn: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.1.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.2: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.2: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.2.attn: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.2.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.3: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.3: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.3.attn: 4 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.3.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.2.residual_group.blocks.4: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.4: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.4.attn: 4 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.4.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.2.residual_group.blocks.5: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.5: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.5.attn: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.5.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.3.residual_group.blocks.0: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.0: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.0.attn: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.0.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.1: 4 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.1: pruned 4 heads (kept 2)
-Attention layer module.layers.3.residual_group.blocks.1.attn: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.1.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.2: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.2: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.2.attn: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.2.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.3: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.3: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.3.attn: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.3.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.4: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.4: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.4.attn: 5 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.4.attn: pruned 5 heads (kept 1)
-Attention layer module.layers.3.residual_group.blocks.5: 3 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.5: pruned 3 heads (kept 3)
-Attention layer module.layers.3.residual_group.blocks.5.attn: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.5.attn: pruned 2 heads (kept 4)
-MLP layer module.layers.0.residual_group.blocks.0.mlp.fc1: 17 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.0.mlp.fc1: pruned 17 channels (kept 103)
-MLP layer module.layers.0.residual_group.blocks.0.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.0.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.0.residual_group.blocks.1.mlp.fc1: 15 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.1.mlp.fc1: pruned 15 channels (kept 105)
-MLP layer module.layers.0.residual_group.blocks.1.mlp.fc2: 6 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.1.mlp.fc2: pruned 6 channels (kept 54)
-MLP layer module.layers.0.residual_group.blocks.2.mlp.fc1: 16 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.2.mlp.fc1: pruned 16 channels (kept 104)
-MLP layer module.layers.0.residual_group.blocks.2.mlp.fc2: 6 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.2.mlp.fc2: pruned 6 channels (kept 54)
-MLP layer module.layers.0.residual_group.blocks.3.mlp.fc1: 18 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.3.mlp.fc1: pruned 18 channels (kept 102)
-MLP layer module.layers.0.residual_group.blocks.3.mlp.fc2: 6 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.3.mlp.fc2: pruned 6 channels (kept 54)
-MLP layer module.layers.0.residual_group.blocks.4.mlp.fc1: 17 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.4.mlp.fc1: pruned 17 channels (kept 103)
-MLP layer module.layers.0.residual_group.blocks.4.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.4.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.0.residual_group.blocks.5.mlp.fc1: 15 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.5.mlp.fc1: pruned 15 channels (kept 105)
-MLP layer module.layers.0.residual_group.blocks.5.mlp.fc2: 8 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.5.mlp.fc2: pruned 8 channels (kept 52)
-MLP layer module.layers.1.residual_group.blocks.0.mlp.fc1: 16 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.0.mlp.fc1: pruned 16 channels (kept 104)
-MLP layer module.layers.1.residual_group.blocks.0.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.0.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.1.residual_group.blocks.1.mlp.fc1: 17 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.1.mlp.fc1: pruned 17 channels (kept 103)
-MLP layer module.layers.1.residual_group.blocks.1.mlp.fc2: 9 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.1.mlp.fc2: pruned 9 channels (kept 51)
-MLP layer module.layers.1.residual_group.blocks.2.mlp.fc1: 13 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.2.mlp.fc1: pruned 13 channels (kept 107)
-MLP layer module.layers.1.residual_group.blocks.2.mlp.fc2: 8 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.2.mlp.fc2: pruned 8 channels (kept 52)
-MLP layer module.layers.1.residual_group.blocks.3.mlp.fc1: 14 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.3.mlp.fc1: pruned 14 channels (kept 106)
-MLP layer module.layers.1.residual_group.blocks.3.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.3.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.1.residual_group.blocks.4.mlp.fc1: 14 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.4.mlp.fc1: pruned 14 channels (kept 106)
-MLP layer module.layers.1.residual_group.blocks.4.mlp.fc2: 9 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.4.mlp.fc2: pruned 9 channels (kept 51)
-MLP layer module.layers.1.residual_group.blocks.5.mlp.fc1: 14 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.5.mlp.fc1: pruned 14 channels (kept 106)
-MLP layer module.layers.1.residual_group.blocks.5.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.5.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.2.residual_group.blocks.0.mlp.fc1: 19 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.0.mlp.fc1: pruned 19 channels (kept 101)
-MLP layer module.layers.2.residual_group.blocks.0.mlp.fc2: 8 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.0.mlp.fc2: pruned 8 channels (kept 52)
-MLP layer module.layers.2.residual_group.blocks.1.mlp.fc1: 18 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.1.mlp.fc1: pruned 18 channels (kept 102)
-MLP layer module.layers.2.residual_group.blocks.1.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.1.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.2.residual_group.blocks.2.mlp.fc1: 19 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.2.mlp.fc1: pruned 19 channels (kept 101)
-MLP layer module.layers.2.residual_group.blocks.2.mlp.fc2: 8 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.2.mlp.fc2: pruned 8 channels (kept 52)
-MLP layer module.layers.2.residual_group.blocks.3.mlp.fc1: 17 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.3.mlp.fc1: pruned 17 channels (kept 103)
-MLP layer module.layers.2.residual_group.blocks.3.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.3.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.2.residual_group.blocks.4.mlp.fc1: 17 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.4.mlp.fc1: pruned 17 channels (kept 103)
-MLP layer module.layers.2.residual_group.blocks.4.mlp.fc2: 6 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.4.mlp.fc2: pruned 6 channels (kept 54)
-MLP layer module.layers.2.residual_group.blocks.5.mlp.fc1: 15 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.5.mlp.fc1: pruned 15 channels (kept 105)
-MLP layer module.layers.2.residual_group.blocks.5.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.5.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.3.residual_group.blocks.0.mlp.fc1: 19 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.0.mlp.fc1: pruned 19 channels (kept 101)
-MLP layer module.layers.3.residual_group.blocks.0.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.0.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.3.residual_group.blocks.1.mlp.fc1: 16 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.1.mlp.fc1: pruned 16 channels (kept 104)
-MLP layer module.layers.3.residual_group.blocks.1.mlp.fc2: 6 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.1.mlp.fc2: pruned 6 channels (kept 54)
-MLP layer module.layers.3.residual_group.blocks.2.mlp.fc1: 16 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.2.mlp.fc1: pruned 16 channels (kept 104)
-MLP layer module.layers.3.residual_group.blocks.2.mlp.fc2: 9 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.2.mlp.fc2: pruned 9 channels (kept 51)
-MLP layer module.layers.3.residual_group.blocks.3.mlp.fc1: 12 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.3.mlp.fc1: pruned 12 channels (kept 108)
-MLP layer module.layers.3.residual_group.blocks.3.mlp.fc2: 8 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.3.mlp.fc2: pruned 8 channels (kept 52)
-MLP layer module.layers.3.residual_group.blocks.4.mlp.fc1: 15 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.4.mlp.fc1: pruned 15 channels (kept 105)
-MLP layer module.layers.3.residual_group.blocks.4.mlp.fc2: 7 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.4.mlp.fc2: pruned 7 channels (kept 53)
-MLP layer module.layers.3.residual_group.blocks.5.mlp.fc1: 15 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.5.mlp.fc1: pruned 15 channels (kept 105)
-MLP layer module.layers.3.residual_group.blocks.5.mlp.fc2: 8 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.5.mlp.fc2: pruned 8 channels (kept 52)
-  Parameters after pruning: 794,195
-  Actual reduction: -2.1%
-Fine-tuning with knowledge distillation...
-Fine-tuning for 5 epochs...
-  Debug - MSE Loss: 0.000615
-  Debug - KD Loss: 0.000005
-  Debug - Total Loss: 0.000432
-  Debug - LR: 1e-05
-  Debug - Gradient Norm: 0.000278
-  Fine-tuning epoch 1/5: Loss=0.000446 (batches: 8)
-  Fine-tuning epoch 2/5: Loss=0.000423 (batches: 8)
-  Fine-tuning epoch 3/5: Loss=0.000403 (batches: 8)
-  Fine-tuning epoch 4/5: Loss=0.000439 (batches: 8)
-  Fine-tuning epoch 5/5: Loss=0.000421 (batches: 8)
-Iteration 2 completed
-PSNR: 38.68dB (drop: -0.00dB)
-
-============================================================
-PRUNING ITERATION 3/3
-============================================================
-Target ratio: 40.0%
-
-Pruning Plan Summary:
-  Target ratio: 40.0%
-  Estimated reduction: 63.5%
-  Parameters before pruning: 794,195
-Attention layer module.layers.0.residual_group.blocks.0: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.0: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.0.attn: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.0.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.0.residual_group.blocks.1: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.1: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.1.attn: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.1.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.0.residual_group.blocks.2: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.2: pruned 1 heads (kept 5)
-Attention layer module.layers.0.residual_group.blocks.2.attn: 4 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.2.attn: pruned 4 heads (kept 2)
-Attention layer module.layers.0.residual_group.blocks.3: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.3: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.3.attn: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.3.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.4: 3 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.4: pruned 3 heads (kept 3)
-Attention layer module.layers.0.residual_group.blocks.4.attn: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.4.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.5: 2 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.5: pruned 2 heads (kept 4)
-Attention layer module.layers.0.residual_group.blocks.5.attn: 1 heads to prune
-  Updated attention mask for module.layers.0.residual_group.blocks.5.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.0: 1 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.0: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.0.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.0.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.1: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.1: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.1.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.1.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.2: 4 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.2: pruned 4 heads (kept 2)
-Attention layer module.layers.1.residual_group.blocks.2.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.2.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.3: 1 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.3: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.3.attn: 1 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.3.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.1.residual_group.blocks.4: 3 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.4: pruned 3 heads (kept 3)
-Attention layer module.layers.1.residual_group.blocks.4.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.4.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.5: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.5: pruned 2 heads (kept 4)
-Attention layer module.layers.1.residual_group.blocks.5.attn: 2 heads to prune
-  Updated attention mask for module.layers.1.residual_group.blocks.5.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.0: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.0: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.0.attn: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.0.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.1: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.1: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.1.attn: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.1.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.2: 2 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.2: pruned 2 heads (kept 4)
-Attention layer module.layers.2.residual_group.blocks.2.attn: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.2.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.3: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.3: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.3.attn: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.3.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.4: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.4: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.4.attn: 3 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.4.attn: pruned 3 heads (kept 3)
-Attention layer module.layers.2.residual_group.blocks.5: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.5: pruned 1 heads (kept 5)
-Attention layer module.layers.2.residual_group.blocks.5.attn: 1 heads to prune
-  Updated attention mask for module.layers.2.residual_group.blocks.5.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.0: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.0: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.0.attn: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.0.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.1: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.1: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.1.attn: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.1.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.2: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.2: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.2.attn: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.2.attn: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.3: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.3: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.3.attn: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.3.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.4: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.4: pruned 1 heads (kept 5)
-Attention layer module.layers.3.residual_group.blocks.4.attn: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.4.attn: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.5: 2 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.5: pruned 2 heads (kept 4)
-Attention layer module.layers.3.residual_group.blocks.5.attn: 1 heads to prune
-  Updated attention mask for module.layers.3.residual_group.blocks.5.attn: pruned 1 heads (kept 5)
-MLP layer module.layers.0.residual_group.blocks.0.mlp.fc1: 25 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.0.mlp.fc1: pruned 25 channels (kept 95)
-MLP layer module.layers.0.residual_group.blocks.0.mlp.fc2: 11 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.0.mlp.fc2: pruned 11 channels (kept 49)
-MLP layer module.layers.0.residual_group.blocks.1.mlp.fc1: 22 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.1.mlp.fc1: pruned 22 channels (kept 98)
-MLP layer module.layers.0.residual_group.blocks.1.mlp.fc2: 10 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.1.mlp.fc2: pruned 10 channels (kept 50)
-MLP layer module.layers.0.residual_group.blocks.2.mlp.fc1: 24 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.2.mlp.fc1: pruned 24 channels (kept 96)
-MLP layer module.layers.0.residual_group.blocks.2.mlp.fc2: 10 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.2.mlp.fc2: pruned 10 channels (kept 50)
-MLP layer module.layers.0.residual_group.blocks.3.mlp.fc1: 27 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.3.mlp.fc1: pruned 27 channels (kept 93)
-MLP layer module.layers.0.residual_group.blocks.3.mlp.fc2: 9 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.3.mlp.fc2: pruned 9 channels (kept 51)
-MLP layer module.layers.0.residual_group.blocks.4.mlp.fc1: 26 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.4.mlp.fc1: pruned 26 channels (kept 94)
-MLP layer module.layers.0.residual_group.blocks.4.mlp.fc2: 12 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.4.mlp.fc2: pruned 12 channels (kept 48)
-MLP layer module.layers.0.residual_group.blocks.5.mlp.fc1: 22 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.5.mlp.fc1: pruned 22 channels (kept 98)
-MLP layer module.layers.0.residual_group.blocks.5.mlp.fc2: 11 channels to prune
-  Updated channel mask for module.layers.0.residual_group.blocks.5.mlp.fc2: pruned 11 channels (kept 49)
-MLP layer module.layers.1.residual_group.blocks.0.mlp.fc1: 24 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.0.mlp.fc1: pruned 24 channels (kept 96)
-MLP layer module.layers.1.residual_group.blocks.0.mlp.fc2: 11 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.0.mlp.fc2: pruned 11 channels (kept 49)
-MLP layer module.layers.1.residual_group.blocks.1.mlp.fc1: 28 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.1.mlp.fc1: pruned 28 channels (kept 92)
-MLP layer module.layers.1.residual_group.blocks.1.mlp.fc2: 14 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.1.mlp.fc2: pruned 14 channels (kept 46)
-MLP layer module.layers.1.residual_group.blocks.2.mlp.fc1: 20 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.2.mlp.fc1: pruned 20 channels (kept 100)
-MLP layer module.layers.1.residual_group.blocks.2.mlp.fc2: 13 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.2.mlp.fc2: pruned 13 channels (kept 47)
-MLP layer module.layers.1.residual_group.blocks.3.mlp.fc1: 21 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.3.mlp.fc1: pruned 21 channels (kept 99)
-MLP layer module.layers.1.residual_group.blocks.3.mlp.fc2: 9 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.3.mlp.fc2: pruned 9 channels (kept 51)
-MLP layer module.layers.1.residual_group.blocks.4.mlp.fc1: 22 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.4.mlp.fc1: pruned 22 channels (kept 98)
-MLP layer module.layers.1.residual_group.blocks.4.mlp.fc2: 14 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.4.mlp.fc2: pruned 14 channels (kept 46)
-MLP layer module.layers.1.residual_group.blocks.5.mlp.fc1: 21 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.5.mlp.fc1: pruned 21 channels (kept 99)
-MLP layer module.layers.1.residual_group.blocks.5.mlp.fc2: 11 channels to prune
-  Updated channel mask for module.layers.1.residual_group.blocks.5.mlp.fc2: pruned 11 channels (kept 49)
-MLP layer module.layers.2.residual_group.blocks.0.mlp.fc1: 28 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.0.mlp.fc1: pruned 28 channels (kept 92)
-MLP layer module.layers.2.residual_group.blocks.0.mlp.fc2: 12 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.0.mlp.fc2: pruned 12 channels (kept 48)
-MLP layer module.layers.2.residual_group.blocks.1.mlp.fc1: 28 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.1.mlp.fc1: pruned 28 channels (kept 92)
-MLP layer module.layers.2.residual_group.blocks.1.mlp.fc2: 12 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.1.mlp.fc2: pruned 12 channels (kept 48)
-MLP layer module.layers.2.residual_group.blocks.2.mlp.fc1: 28 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.2.mlp.fc1: pruned 28 channels (kept 92)
-MLP layer module.layers.2.residual_group.blocks.2.mlp.fc2: 12 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.2.mlp.fc2: pruned 12 channels (kept 48)
-MLP layer module.layers.2.residual_group.blocks.3.mlp.fc1: 26 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.3.mlp.fc1: pruned 26 channels (kept 94)
-MLP layer module.layers.2.residual_group.blocks.3.mlp.fc2: 10 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.3.mlp.fc2: pruned 10 channels (kept 50)
-MLP layer module.layers.2.residual_group.blocks.4.mlp.fc1: 28 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.4.mlp.fc1: pruned 28 channels (kept 92)
-MLP layer module.layers.2.residual_group.blocks.4.mlp.fc2: 9 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.4.mlp.fc2: pruned 9 channels (kept 51)
-MLP layer module.layers.2.residual_group.blocks.5.mlp.fc1: 22 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.5.mlp.fc1: pruned 22 channels (kept 98)
-MLP layer module.layers.2.residual_group.blocks.5.mlp.fc2: 10 channels to prune
-  Updated channel mask for module.layers.2.residual_group.blocks.5.mlp.fc2: pruned 10 channels (kept 50)
-MLP layer module.layers.3.residual_group.blocks.0.mlp.fc1: 27 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.0.mlp.fc1: pruned 27 channels (kept 93)
-MLP layer module.layers.3.residual_group.blocks.0.mlp.fc2: 11 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.0.mlp.fc2: pruned 11 channels (kept 49)
-MLP layer module.layers.3.residual_group.blocks.1.mlp.fc1: 24 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.1.mlp.fc1: pruned 24 channels (kept 96)
-MLP layer module.layers.3.residual_group.blocks.1.mlp.fc2: 9 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.1.mlp.fc2: pruned 9 channels (kept 51)
-MLP layer module.layers.3.residual_group.blocks.2.mlp.fc1: 24 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.2.mlp.fc1: pruned 24 channels (kept 96)
-MLP layer module.layers.3.residual_group.blocks.2.mlp.fc2: 13 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.2.mlp.fc2: pruned 13 channels (kept 47)
-MLP layer module.layers.3.residual_group.blocks.3.mlp.fc1: 19 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.3.mlp.fc1: pruned 19 channels (kept 101)
-MLP layer module.layers.3.residual_group.blocks.3.mlp.fc2: 12 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.3.mlp.fc2: pruned 12 channels (kept 48)
-MLP layer module.layers.3.residual_group.blocks.4.mlp.fc1: 22 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.4.mlp.fc1: pruned 22 channels (kept 98)
-MLP layer module.layers.3.residual_group.blocks.4.mlp.fc2: 11 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.4.mlp.fc2: pruned 11 channels (kept 49)
-MLP layer module.layers.3.residual_group.blocks.5.mlp.fc1: 22 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.5.mlp.fc1: pruned 22 channels (kept 98)
-MLP layer module.layers.3.residual_group.blocks.5.mlp.fc2: 12 channels to prune
-  Updated channel mask for module.layers.3.residual_group.blocks.5.mlp.fc2: pruned 12 channels (kept 48)
-  Parameters after pruning: 800,770
-  Actual reduction: -0.8%
-Fine-tuning with knowledge distillation...
-Fine-tuning for 5 epochs...
-  Debug - MSE Loss: 0.000567
-  Debug - KD Loss: 0.000005
-  Debug - Total Loss: 0.000398
-  Debug - LR: 1e-05
-  Debug - Gradient Norm: 0.000268
-  Fine-tuning epoch 1/5: Loss=0.000451 (batches: 8)
-  Fine-tuning epoch 2/5: Loss=0.000414 (batches: 8)
-  Fine-tuning epoch 3/5: Loss=0.000486 (batches: 8)
-  Fine-tuning epoch 4/5: Loss=0.000441 (batches: 8)
-  Fine-tuning epoch 5/5: Loss=0.000466 (batches: 8)
-Iteration 3 completed
-PSNR: 38.67dB (drop: 0.01dB)
-
-======================================================================
-ITERATIVE PRUNING PIPELINE SUMMARY
-======================================================================
-Original parameters: 910,152
-Final parameters: 910,152
-Total reduction: 0.0%
-Iterations completed: 3
-Total time: 875.91s
-Final PSNR: 38.67dB
-
-?? Pruning pipeline completed successfully!
-
-Starting comprehensive evaluation...
-======================================================================
-COMPREHENSIVE EVALUATION PIPELINE
-======================================================================
-Step 1: Performance Analysis...
-Measuring inference performance...
-  Original model: 3945.02 ± 439.25 ms
-  Pruned model:   3844.91 ± 416.30 ms
-  Speedup:        1.03x
-Step 2: Compression Analysis...
-Analyzing model compression...
-Original parameters: 910,152
-Pruned parameters:   910,152
-Parameter reduction: 0.0%
-Original model size: 3.47 MB
-Pruned model size:   3.47 MB
-Size reduction:      0.0%
-Step 3: Quality Analysis...
-Evaluating model quality...
-  Original PSNR: 36.02 ± 5.90 dB
-  Pruned PSNR:   36.03 ± 5.90 dB
-  PSNR Drop:     -0.00 dB
-Step 4: Success Criteria Evaluation...
-
-======================================================================
-COMPREHENSIVE EVALUATION REPORT
-======================================================================
-
-SUCCESS CRITERIA EVALUATION:
---------------------------------------------------
-parameter_reduction : ? FAIL (Target: 0.35, Achieved: 0.0)
-psnr_preservation   : ? PASS (Target: < 0.5 dB drop, Achieved: -0.00 dB drop)
-inference_speedup   : ? FAIL (Target: > 1.2x, Achieved: 1.03x)
-memory_reduction    : ? FAIL (Target: > 15.0%, Achieved: 0.0%)
-
-DETAILED RESULTS:
---------------------------------------------------
-Performance Metrics:
-  Inference Time: 3945.02ms ? 3844.91ms (1.03x speedup)
-Compression Metrics:
-  Parameters:     910,152 ? 910,152 (0.0% reduction)
-  Model Size:     3.47MB ? 3.47MB (0.0% reduction)
-Quality Metrics:
-  PSNR:           36.02dB ? 36.03dB (-0.00dB drop)
-
-Evaluation Time: 190.52s
-
-Overall Result: ? NEEDS IMPROVEMENT
-
-======================================================================
-FINAL MODEL EVALUATION
-======================================================================
-   1--> 0801x2.png | 37.38dB
-   2--> 0802x2.png | 41.31dB
-   3--> 0803x2.png | 47.18dB
-   4--> 0804x2.png | 33.67dB
-   5--> 0805x2.png | 33.81dB
-   6--> 0806x2.png | 36.97dB
-   7--> 0807x2.png | 24.47dB
-   8--> 0808x2.png | 31.26dB
-   9--> 0809x2.png | 40.54dB
-  10--> 0810x2.png | 33.71dB
-  11--> 0811x2.png | 34.85dB
-  12--> 0812x2.png | 34.40dB
-  13--> 0813x2.png | 36.86dB
-  14--> 0814x2.png | 35.11dB
-  15--> 0815x2.png | 39.73dB
-  16--> 0816x2.png | 37.13dB
-  17--> 0817x2.png | 37.35dB
-  18--> 0818x2.png | 36.52dB
-  19--> 0819x2.png | 35.02dB
-  20--> 0820x2.png | 32.59dB
-
-======================================================================
-STRUCTURED PRUNING RESULTS SUMMARY
-======================================================================
-Original Parameters:     910,152
-Final Parameters:        910,152
-Parameter Reduction:     0.0%
-Final PSNR:              35.99dB
-Average Inference Time:  4.0127s
-Evaluation Success:      ? FAIL
-
-Saving final pruned model...
+Target ratio: 48.8%
+Collecting importance scores with memory optimization...
+Using memory-efficient fallback approach due to GPU memory constraints...
+Computing importance scores from model weights...
 Traceback (most recent call last):
-  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 1337, in <module>
+  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 2743, in <module>
     main()
-  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 1310, in main
-    model.save_network(pruned_model.netG, 'G', f'pruned_{total_reduction:.1%}', iter_label=f'pruned_{total_reduction:.1%}')
-  File "/content/code/models/model_base.py", line 151, in save_network
-    save_path = os.path.join(save_dir, save_filename)
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "<frozen posixpath>", line 76, in join
-TypeError: expected str, bytes or os.PathLike object, not DataParallel
+  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 2585, in main
+    pipeline_results = pipeline.run_complete_pipeline(train_loader, test_loader)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 1566, in run_complete_pipeline
+    self._collect_importance_scores(train_loader)
+  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 1681, in _collect_importance_scores
+    self._memory_efficient_importance_collection()
+  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 1737, in _memory_efficient_importance_collection
+    self.mask_manager.update_importance_scores(final_activations, layer_modules_dict)
+  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 420, in update_importance_scores
+    importance = self.compute_channel_importance(activations, layer_module)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/content/code/main_train_swinir_structured_pruning_complete.py", line 402, in compute_channel_importance
+    combined_importance = 0.5 * activation_importance + 0.5 * magnitude_importance
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+RuntimeError: The size of tensor a (62) must match the size of tensor b (60) at non-singleton dimension 0

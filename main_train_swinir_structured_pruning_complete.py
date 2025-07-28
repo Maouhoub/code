@@ -395,10 +395,29 @@ class ImportanceMaskManager:
                 if weight.device != device:
                     weight = weight.to(device)
                 magnitude_importance = torch.norm(weight, p=1, dim=1)  # L1 norm per output channel
+                
+                # Ensure magnitude_importance matches activation_importance size (post-surgery dimensions)
+                if magnitude_importance.size(0) != activation_importance.size(0):
+                    # If sizes don't match, resize magnitude_importance to match activation_importance
+                    target_size = activation_importance.size(0)
+                    current_size = magnitude_importance.size(0)
+                    
+                    if current_size > target_size:
+                        # Truncate to match smaller post-surgery size
+                        magnitude_importance = magnitude_importance[:target_size]
+                    else:
+                        # Pad with zeros to match larger post-surgery size
+                        padding = torch.zeros(target_size - current_size, device=device)
+                        magnitude_importance = torch.cat([magnitude_importance, padding], dim=0)
         
-        # 3. Combined importance - ensure both tensors are on same device
+        # 3. Combined importance - ensure both tensors are on same device and same size
         activation_importance = activation_importance.to(device)
         magnitude_importance = magnitude_importance.to(device)
+        
+        # Final size check to prevent dimension mismatch
+        if activation_importance.size(0) != magnitude_importance.size(0):
+            magnitude_importance = activation_importance  # Use activation as fallback if still mismatched
+            
         combined_importance = 0.5 * activation_importance + 0.5 * magnitude_importance
         return combined_importance
 
