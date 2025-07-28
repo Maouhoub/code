@@ -904,7 +904,7 @@ class ModelSurgery:
         print(f"  🎯 MLP layers rebuilt: {len(mlp_reductions)}")
         
         # Update mask manager to reflect the new model dimensions
-        self._update_mask_manager_post_surgery()
+        self._update_mask_manager_post_surgery(attention_reductions, mlp_reductions)
         
         return self.model, param_reduction, flops_reduction
     
