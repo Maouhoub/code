@@ -1614,7 +1614,7 @@ class IterativePruningPipeline:
                 print(f"  Pruned - Params: {pruned_params:,}, FLOPs: {pruned_flops/1e9:.2f}G, Time: {pruned_time*1000:.2f}ms")
             
             # Fine-tune with knowledge distillation
-            fine_tune_epochs = 2
+            fine_tune_epochs = 1
             # self.config.get('fine_tune_epochs', 3)
             psnr_before = self._evaluate_model(test_loader) if test_loader else 0.0
             
