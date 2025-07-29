@@ -945,8 +945,64 @@ class ModelSurgery:
         # Update num_heads
         old_attention.num_heads = new_num_heads
         
-        # Update scale factor
-        old_attention.scale = head_dim ** -0.5
+        # ? CRITICAL FIX: Update head_dim to match the new QKV dimensions
+        # Calculate actual head_dim from new QKV output
+        actual_head_dim = new_qkv.out_features // (3 * new_num_heads)
+        
+        # Update scale factor with actual head_dim
+        old_attention.scale = actual_head_dim ** -0.5
+        
+        # ? IMPORTANT: Store head_dim as an attribute for forward pass calculations
+        if not hasattr(old_attention, 'head_dim'):
+            old_attention.head_dim = actual_head_dim
+        else:
+            old_attention.head_dim = actual_head_dim
+        
+        # ? CRITICAL: Override the forward method to handle dimension mismatch
+        original_forward = old_attention.forward
+        
+        def pruned_forward(self, x, mask=None):
+            """
+            Modified forward pass that handles pruned attention heads correctly
+            """
+            B_, N, C = x.shape
+            
+            # Use the updated QKV with correct dimensions
+            qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
+
+            q = q * self.scale
+            attn = (q @ k.transpose(-2, -1))
+
+            # Handle relative position bias if it exists
+            if hasattr(self, 'relative_position_bias_table') and hasattr(self, 'relative_position_index'):
+                relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+                    self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+                relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+                attn = attn + relative_position_bias.unsqueeze(0)
+
+            if mask is not None:
+                nW = mask.shape[0]
+                attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+                attn = attn.view(-1, self.num_heads, N, N)
+                attn = self.softmax(attn)
+            else:
+                attn = self.softmax(attn)
+
+            if hasattr(self, 'attn_drop'):
+                attn = self.attn_drop(attn)
+
+            x = (attn @ v).transpose(1, 2).reshape(B_, N, self.num_heads * self.head_dim)
+            x = self.proj(x)
+            
+            if hasattr(self, 'proj_drop'):
+                x = self.proj_drop(x)
+            
+            return x
+        
+        # Bind the new forward method to the attention module
+        import types
+        old_attention.forward = types.MethodType(pruned_forward, old_attention)
         
         # Create new projection layer to handle dimension mismatch
         if hasattr(old_attention, 'proj'):
