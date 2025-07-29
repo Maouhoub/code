@@ -425,7 +425,7 @@ class StructuredPruner:
         self.hooks = []
         
     def create_pruning_plan(self, target_ratio, importance_threshold=0.3):
-        """Create AGGRESSIVE structured pruning plan based on importance scores"""
+        """Create CONSERVATIVE structured pruning plan based on importance scores"""
         plan = {
             'attention_heads': {},
             'mlp_channels': {},
@@ -436,44 +436,27 @@ class StructuredPruner:
         total_params = sum(p.numel() for p in self.model.parameters())
         params_to_remove = 0
         
-        # MORE AGGRESSIVE attention head pruning
+        # CONSERVATIVE attention head pruning
         for name, mask in self.mask_manager.attention_masks.items():
             if name in self.mask_manager.importance_scores:
                 importance = self.mask_manager.importance_scores[name]
                 num_heads = len(importance)
                 
-                # More aggressive pruning: use percentile-based pruning
-                if target_ratio >= 0.6:  # Aggressive mode
-                    # Prune bottom 70% of heads based on importance
-                    _, sorted_indices = torch.sort(importance)
-                    heads_to_prune = int(num_heads * 0.7)
-                else:
-                    # Standard pruning
-                    normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
-                    heads_to_prune = (normalized_importance < importance_threshold).sum().item()
-                
-                heads_to_prune = min(heads_to_prune, num_heads - 1)  # Keep at least one head
+                # Conservative: prune max 33% of heads (2 out of 6)
+                heads_to_prune = min(2, max(0, int(num_heads * 0.33)))
                 
                 if heads_to_prune > 0:
                     plan['attention_heads'][name] = heads_to_prune
                     params_to_remove += heads_to_prune * (64 * 64)
         
-        # MORE AGGRESSIVE MLP channel pruning  
+        # CONSERVATIVE MLP channel pruning  
         for name, mask in self.mask_manager.channel_masks.items():
             if name in self.mask_manager.importance_scores:
                 importance = self.mask_manager.importance_scores[name]
                 num_channels = len(importance)
                 
-                # More aggressive channel pruning
-                if target_ratio >= 0.6:  # Aggressive mode
-                    # Prune 60-80% of channels based on target ratio
-                    prune_percentage = min(0.8, target_ratio + 0.2)
-                    channels_to_prune = int(num_channels * prune_percentage)
-                else:
-                    # Standard pruning
-                    normalized_importance = (importance - importance.min()) / (importance.max() - importance.min() + 1e-8)
-                    channels_to_prune = int(num_channels * target_ratio * 1.5)  # More aggressive multiplier
-                
+                # Conservative: prune max 25% of channels
+                channels_to_prune = int(num_channels * 0.25)
                 channels_to_prune = min(channels_to_prune, num_channels - 8)  # Keep minimum 8 channels
                 
                 if channels_to_prune > 0:
@@ -958,51 +941,8 @@ class ModelSurgery:
         else:
             old_attention.head_dim = actual_head_dim
         
-        # ? CRITICAL: Override the forward method to handle dimension mismatch
-        original_forward = old_attention.forward
-        
-        def pruned_forward(self, x, mask=None):
-            """
-            Modified forward pass that handles pruned attention heads correctly
-            """
-            B_, N, C = x.shape
-            
-            # Use the updated QKV with correct dimensions
-            qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
-
-            q = q * self.scale
-            attn = (q @ k.transpose(-2, -1))
-
-            # Handle relative position bias if it exists
-            if hasattr(self, 'relative_position_bias_table') and hasattr(self, 'relative_position_index'):
-                relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-                    self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-                relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-                attn = attn + relative_position_bias.unsqueeze(0)
-
-            if mask is not None:
-                nW = mask.shape[0]
-                attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
-                attn = attn.view(-1, self.num_heads, N, N)
-                attn = self.softmax(attn)
-            else:
-                attn = self.softmax(attn)
-
-            if hasattr(self, 'attn_drop'):
-                attn = self.attn_drop(attn)
-
-            x = (attn @ v).transpose(1, 2).reshape(B_, N, self.num_heads * self.head_dim)
-            x = self.proj(x)
-            
-            if hasattr(self, 'proj_drop'):
-                x = self.proj_drop(x)
-            
-            return x
-        
-        # Bind the new forward method to the attention module
-        import types
-        old_attention.forward = types.MethodType(pruned_forward, old_attention)
+        # ? Keep original forward method for better performance
+        # The original SwinIR forward will work correctly with updated components
         
         # Create new projection layer to handle dimension mismatch
         if hasattr(old_attention, 'proj'):
@@ -1638,7 +1578,7 @@ class IterativePruningPipeline:
                 print(f"  Pruned - Params: {pruned_params:,}, FLOPs: {pruned_flops/1e9:.2f}G, Time: {pruned_time*1000:.2f}ms")
             
             # Fine-tune with knowledge distillation
-            fine_tune_epochs = 2
+            fine_tune_epochs = 8  # Increased from 2 to 8 for better recovery
             #self.config.get('fine_tune_epochs', 3)
 
             psnr_before = self._evaluate_model(test_loader) if test_loader else 0.0
@@ -2595,7 +2535,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     # ----------------------------------------
     
     pruning_config = {
-        'target_ratio': 0.3,        # AGGRESSIVE: Target 65% parameter reduction
+        'target_ratio': 0.20,        # CONSERVATIVE: Target 20% parameter reduction (was 30%)
         'num_iterations': 1,         # More iterations for gradual pruning
         'schedule_type': 'linear', # Exponential schedule for aggressive pruning
         'fine_tune_epochs': 12,      # ENHANCED: More epochs with feature distillation
