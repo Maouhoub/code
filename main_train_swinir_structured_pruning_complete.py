@@ -941,8 +941,40 @@ class ModelSurgery:
         else:
             old_attention.head_dim = actual_head_dim
         
-        # ? Keep original forward method for better performance
-        # The original SwinIR forward will work correctly with updated components
+        # ? CRITICAL: Must override forward to fix dimension calculation
+        # The original code uses C // self.num_heads which breaks after surgery
+        def fixed_forward(self, x, mask=None):
+            B_, N, C = x.shape
+            # Use stored head_dim instead of calculating C // self.num_heads
+            qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]
+            q = q * self.scale
+            attn = (q @ k.transpose(-2, -1))
+            
+            if hasattr(self, 'relative_position_bias_table') and hasattr(self, 'relative_position_index'):
+                relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+                    self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)
+                relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
+                attn = attn + relative_position_bias.unsqueeze(0)
+            
+            if mask is not None:
+                nW = mask.shape[0]
+                attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+                attn = attn.view(-1, self.num_heads, N, N)
+            
+            attn = self.softmax(attn)
+            if hasattr(self, 'attn_drop'):
+                attn = self.attn_drop(attn)
+            
+            x = (attn @ v).transpose(1, 2).reshape(B_, N, self.num_heads * self.head_dim)
+            x = self.proj(x)
+            if hasattr(self, 'proj_drop'):
+                x = self.proj_drop(x)
+            return x
+        
+        # Replace forward method
+        import types
+        old_attention.forward = types.MethodType(fixed_forward, old_attention)
         
         # Create new projection layer to handle dimension mismatch
         if hasattr(old_attention, 'proj'):
