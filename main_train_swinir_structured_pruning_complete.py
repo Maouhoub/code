@@ -2539,9 +2539,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     # ----------------------------------------
     
     pruning_config = {
-        'target_ratio': 0.65,        # AGGRESSIVE: Target 65% parameter reduction
-        'num_iterations': 5,         # More iterations for gradual pruning
-        'schedule_type': 'exponential', # Exponential schedule for aggressive pruning
+        'target_ratio': 0.3,        # AGGRESSIVE: Target 65% parameter reduction
+        'num_iterations': 1,         # More iterations for gradual pruning
+        'schedule_type': 'linear', # Exponential schedule for aggressive pruning
         'fine_tune_epochs': 12,      # ENHANCED: More epochs with feature distillation
         'patience': 5                # More patience for convergence
     }
