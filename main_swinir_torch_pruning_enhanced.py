@@ -50,6 +50,11 @@ from utils.utils_dist import get_dist_info, init_dist
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
 
+# Set CUDA debugging environment variables for better error reporting
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['TORCH_USE_CUDA_DSA'] = '1'
+print("CUDA debugging enabled: CUDA_LAUNCH_BLOCKING=1, TORCH_USE_CUDA_DSA=1")
+
 '''
 Enhanced Structured Pruning Training for SwinIR using Torch-Pruning Library
 ============================================================================
