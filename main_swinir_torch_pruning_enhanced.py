@@ -134,21 +134,25 @@ class TorchPruningManager:
             isomorphic: Use isomorphic pruning for better performance
         """
         try:
-            # Identify layers to ignore (typically final layers)
+            # Identify layers to ignore (only final/small layers)
             ignored_layers = []
-            
-            # For SwinIR, we might want to preserve certain critical layers
+            # Collect relative_position_bias_table parameters to skip
+            unwrapped_parameters = []
             for name, module in self.network.named_modules():
-                # Skip final reconstruction layers
-                if 'conv_last' in name or 'output' in name or 'final' in name:
+                lname = name.lower()
+                # Ignore only final layers and very small layers
+                if any(keyword in lname for keyword in [
+                    'conv_last', 'output', 'final'
+                ]):
                     ignored_layers.append(module)
-                # Skip very small layers
                 elif hasattr(module, 'weight') and hasattr(module.weight, 'shape'):
                     if len(module.weight.shape) >= 2 and min(module.weight.shape) <= 8:
                         ignored_layers.append(module)
-            
-            print(f"Ignoring {len(ignored_layers)} layers from pruning")
-            
+                # Collect relative_position_bias_table parameters
+                if hasattr(module, 'relative_position_bias_table'):
+                    unwrapped_parameters.append(module.relative_position_bias_table)
+            print(f"Ignoring {len(ignored_layers)} layers from pruning (final/small layers)")
+            print(f"Unwrapped parameters (not pruned): {len(unwrapped_parameters)} relative_position_bias_table tensors")
             # Create pruner
             self.pruner = tp.pruner.BasePruner(
                 self.network,
@@ -158,14 +162,12 @@ class TorchPruningManager:
                 ignored_layers=ignored_layers,
                 global_pruning=global_pruning,
                 isomorphic=isomorphic,
-                round_to=8,  # Round to 8x for hardware acceleration
+                round_to=8,
+                unwrapped_parameters=unwrapped_parameters,
             )
-            
             print(f"Created pruner with {pruning_ratio:.1%} pruning ratio")
             print(f"Global pruning: {global_pruning}, Isomorphic: {isomorphic}")
-            
             return True
-            
         except Exception as e:
             print(f"Error creating pruner: {e}")
             return False
