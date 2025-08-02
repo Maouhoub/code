@@ -148,9 +148,9 @@ class TorchPruningManager:
                 elif hasattr(module, 'weight') and hasattr(module.weight, 'shape'):
                     if len(module.weight.shape) >= 2 and min(module.weight.shape) <= 8:
                         ignored_layers.append(module)
-                # Collect relative_position_bias_table parameters
+                # Collect relative_position_bias_table parameters as (module, parameter_name)
                 if hasattr(module, 'relative_position_bias_table'):
-                    unwrapped_parameters.append(module.relative_position_bias_table)
+                    unwrapped_parameters.append((module, 'relative_position_bias_table'))
             print(f"Ignoring {len(ignored_layers)} layers from pruning (final/small layers)")
             print(f"Unwrapped parameters (not pruned): {len(unwrapped_parameters)} relative_position_bias_table tensors")
             # Create pruner
