@@ -1,6 +1,7 @@
 # Modified from https://github.com/open-mmlab/mmcv/blob/master/mmcv/runner/dist_utils.py  # noqa: E501
 import functools
 import os
+import pickle
 import subprocess
 import torch
 import torch.distributed as dist
@@ -22,10 +23,20 @@ def init_dist(launcher, backend='nccl', **kwargs):
 
 
 def _init_dist_pytorch(backend, **kwargs):
-    rank = int(os.environ['RANK'])
+    # Handle case when RANK environment variable is not set (single GPU training)
+    world_size = int(os.environ.get('WORLD_SIZE', 1))
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    
     num_gpus = torch.cuda.device_count()
-    torch.cuda.set_device(rank % num_gpus)
-    dist.init_process_group(backend=backend, **kwargs)
+    if num_gpus > 0:
+        torch.cuda.set_device(local_rank % num_gpus)
+    
+    # Only initialize process group if we're actually in distributed mode
+    if world_size > 1:
+        dist.init_process_group(backend=backend, **kwargs)
+    else:
+        # For single GPU, we don't need to initialize distributed training
+        print("Single GPU detected, skipping distributed initialization")
 
 
 def _init_dist_slurm(backend, port=None):
@@ -195,7 +206,7 @@ def reduce_loss_dict(loss_dict):
         if dist.get_rank() == 0:
             losses /= world_size
 
-        reduced_losses = {k: v for k, v in zip(keys, losses)}
+        reduced_losses = dict(zip(keys, losses))
 
     return reduced_losses
 

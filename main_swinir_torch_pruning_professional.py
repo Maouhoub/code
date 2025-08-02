@@ -28,7 +28,6 @@ import numpy as np
 import logging
 import gc
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -46,7 +45,6 @@ except ImportError:
 from utils import utils_logger
 from utils import utils_image as util
 from utils import utils_option as option
-from utils.utils_dist import get_dist_info, init_dist
 
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
@@ -727,10 +725,11 @@ def main():
     # Parse options
     opt = option.parse(args.opt, is_train=True)
     
-    # Setup distributed training if needed
-    if opt['dist']:
-        init_dist('pytorch')
-    opt['rank'], opt['world_size'] = get_dist_info()
+    # For single GPU, disable distributed training
+    opt['dist'] = False
+    opt['rank'] = 0
+    opt['world_size'] = 1
+    opt['num_gpu'] = 1
     
     # Random seed
     seed = opt.get('manual_seed')
@@ -746,7 +745,6 @@ def main():
     logger.info(option.dict2str(opt))
     
     # Create datasets
-    dataset_type = opt['datasets']['train']['dataset_type']
     train_loader = None
     test_loader = None
     
@@ -756,15 +754,10 @@ def main():
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             logger.info('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
             
-            if opt['dist']:
-                train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True, seed=seed)
-                train_loader = DataLoader(train_set, batch_size=dataset_opt['dataloader_batch_size']//opt['num_gpu'], 
-                                        sampler=train_sampler, num_workers=dataset_opt['dataloader_num_workers']//opt['num_gpu'], 
-                                        drop_last=True, pin_memory=True)
-            else:
-                train_loader = DataLoader(train_set, batch_size=dataset_opt['dataloader_batch_size'], 
-                                        shuffle=dataset_opt['dataloader_shuffle'], num_workers=dataset_opt['dataloader_num_workers'], 
-                                        drop_last=True, pin_memory=True)
+            # Simple single GPU DataLoader
+            train_loader = DataLoader(train_set, batch_size=dataset_opt['dataloader_batch_size'], 
+                                    shuffle=dataset_opt['dataloader_shuffle'], num_workers=dataset_opt['dataloader_num_workers'], 
+                                    drop_last=True, pin_memory=True)
         elif phase == 'test':
             test_set = define_Dataset(dataset_opt)
             test_loader = DataLoader(test_set, batch_size=1, shuffle=False, num_workers=1, drop_last=False, pin_memory=True)
@@ -781,7 +774,11 @@ def main():
     example_inputs = torch.randn(1, 3, 64, 64)
     if torch.cuda.is_available():
         example_inputs = example_inputs.cuda()
-        model.netG.cuda()  # Ensure model is on GPU
+        # Ensure model is on GPU if available
+        if hasattr(model, 'netG'):
+            model.netG.cuda()
+        else:
+            model.cuda()
     
     # Initialize and run the pruning pipeline
     try:
