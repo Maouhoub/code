@@ -86,14 +86,14 @@ class SwinIRWindowAttentionPruner(tp.BasePruningFunc):
     
     def get_out_channels(self, layer):
         """Get output channels - critical for torch-pruning"""
-        if hasattr(layer, 'qkv'):
-            return layer.qkv.in_features
+        if hasattr(layer, 'qkv') and hasattr(layer.qkv, 'weight'):
+            return layer.qkv.weight.shape[0]  # output dim
         return 0
     
     def get_in_channels(self, layer):
         """Get input channels - critical for torch-pruning"""
-        if hasattr(layer, 'qkv'):
-            return layer.qkv.in_features
+        if hasattr(layer, 'qkv') and hasattr(layer.qkv, 'weight'):
+            return layer.qkv.weight.shape[1]  # input dim
         return 0
 
 
