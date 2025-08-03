@@ -180,9 +180,9 @@ class SimplifiedTorchPruningManager:
             
             # Collect all relative_position_bias_table parameters for unwrapped_parameters
             unwrapped_parameters = []
-            for name, param in self.network.named_parameters():
-                if 'relative_position_bias_table' in name:
-                    unwrapped_parameters.append(name)
+            for module_name, module in self.network.named_modules():
+                if hasattr(module, 'relative_position_bias_table'):
+                    unwrapped_parameters.append((module_name + '.relative_position_bias_table', module))
             
             print(f"Ignoring {len(ignored_layers)} layers (output/problematic)")
             print(f"Found {len(num_heads)} attention layers")
