@@ -173,19 +173,23 @@ class SimplifiedTorchPruningManager:
                 ]):
                     ignored_layers.append(module)
                 
-                # Handle relative position bias tables (these cause indexing issues)
-                if 'relative_position_bias_table' in name.lower():
-                    ignored_layers.append(module)
-                
                 # Handle SwinIR WindowAttention - map qkv layers to num_heads
                 if hasattr(module, 'qkv') and hasattr(module, 'proj') and hasattr(module, 'num_heads'):
                     num_heads[module.qkv] = getattr(module, 'num_heads', 6)
                     print(f"  Found SwinIR attention: {name} with {module.num_heads} heads")
             
+            # Collect all relative_position_bias_table parameters for unwrapped_parameters
+            unwrapped_parameters = []
+            for name, param in self.network.named_parameters():
+                if 'relative_position_bias_table' in name:
+                    unwrapped_parameters.append(name)
+            
             print(f"Ignoring {len(ignored_layers)} layers (output/problematic)")
             print(f"Found {len(num_heads)} attention layers")
+            print(f"Unwrapped parameters: {len(unwrapped_parameters)}")
             
             # Create pruner with conservative settings using BasePruner
+            # Based on the transformers examples, use unwrapped_parameters to handle bias tables
             self.pruner = tp.pruner.BasePruner(
                 model=self.network,
                 example_inputs=self.example_inputs,
@@ -196,7 +200,7 @@ class SimplifiedTorchPruningManager:
                 num_heads=num_heads,
                 ignored_layers=ignored_layers,
                 output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum(),
-                root_module_types=(nn.Linear, nn.LayerNorm),  # Only consider these types
+                unwrapped_parameters=unwrapped_parameters,  # Handle relative_position_bias_table properly
                 round_to=8  # Round to multiples of 8 for efficiency
             )
             
