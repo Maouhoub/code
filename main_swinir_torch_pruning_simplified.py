@@ -33,7 +33,10 @@ import torch.nn.functional as F
 import time
 import copy
 import sys
+import math
 from collections import OrderedDict
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 # Import torch-pruning library
 try:
@@ -526,8 +529,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     # save opt to a '../option.json' file
     # ----------------------------------------
     if opt['rank'] == 0:
-        option_path = opt['path']['options']
-        option.save(opt, option_path)
+        option.save(opt)
     
     # ----------------------------------------
     # return None for missing key
@@ -568,7 +570,6 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
-            train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['dist']:
                 train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True, seed=seed)
                 train_loader = DataLoader(train_set,
