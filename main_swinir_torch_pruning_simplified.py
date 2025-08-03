@@ -168,33 +168,25 @@ class SimplifiedTorchPruningManager:
                 ]):
                     ignored_layers.append(module)
                 
-                # Handle SwinIR WindowAttention
-                if 'WindowAttention' in str(type(module)) or (
-                    hasattr(module, 'qkv') and hasattr(module, 'proj') and hasattr(module, 'num_heads')
-                ):
-                    if hasattr(module, 'qkv'):
-                        num_heads[module.qkv] = getattr(module, 'num_heads', 6)
-                        customized_pruners[type(module)] = SwinIRCustomPruner()
-                        print(f"  Found SwinIR attention: {name}")
+                # Handle SwinIR WindowAttention - map qkv layers to num_heads
+                if hasattr(module, 'qkv') and hasattr(module, 'proj') and hasattr(module, 'num_heads'):
+                    num_heads[module.qkv] = getattr(module, 'num_heads', 6)
+                    print(f"  Found SwinIR attention: {name} with {module.num_heads} heads")
             
             print(f"Ignoring {len(ignored_layers)} output layers")
             print(f"Found {len(num_heads)} attention layers")
             
-            # Create pruner with conservative settings
-            self.pruner = tp.pruner.MetaPruner(
+            # Create pruner with conservative settings using BasePruner
+            self.pruner = tp.pruner.BasePruner(
                 model=self.network,
                 example_inputs=self.example_inputs,
                 importance=importance,
-                pruning_ratio=pruning_ratio,
-                pruning_ratio_dict={},  # Uniform pruning
-                max_pruning_ratio=0.8,  # Safety limit
                 iterative_steps=1,
-                ignored_layers=ignored_layers,
+                pruning_ratio=pruning_ratio,
+                global_pruning=False,  # Use uniform pruning ratio
                 num_heads=num_heads,
-                customized_pruners=customized_pruners,
-                unwrapped_parameters=[],
-                output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum(),
-                round_to=8  # Round to multiples of 8 for efficiency
+                ignored_layers=ignored_layers,
+                output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum()
             )
             
             print(f"Created conservative pruner with {pruning_ratio:.1%} ratio")
@@ -202,6 +194,8 @@ class SimplifiedTorchPruningManager:
             
         except Exception as e:
             print(f"Error creating pruner: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def prune_model(self):
