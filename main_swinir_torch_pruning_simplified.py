@@ -156,16 +156,25 @@ class SimplifiedTorchPruningManager:
             # Use magnitude importance (simple and effective)
             importance = tp.importance.MagnitudeImportance(p=2, group_reduction="mean")
             
-            # Identify layers to ignore (keep output layers intact)
+            # Ensure example inputs are on the same device as the model
+            device = next(self.network.parameters()).device
+            if self.example_inputs.device != device:
+                self.example_inputs = self.example_inputs.to(device)
+            
+            # Identify layers to ignore (keep output layers and problematic layers intact)
             ignored_layers = []
             num_heads = {}
-            customized_pruners = {}
             
             for name, module in self.network.named_modules():
-                # Ignore final/output layers
+                # Ignore final/output layers and upsample layers
                 if any(keyword in name.lower() for keyword in [
-                    'conv_last', 'output', 'final', 'conv_after_body', 'upsample'
+                    'conv_last', 'output', 'final', 'conv_after_body', 'upsample', 
+                    'conv_before_upsample', 'conv_up', 'patch_embed', 'norm'
                 ]):
+                    ignored_layers.append(module)
+                
+                # Handle relative position bias tables (these cause indexing issues)
+                if 'relative_position_bias_table' in name.lower():
                     ignored_layers.append(module)
                 
                 # Handle SwinIR WindowAttention - map qkv layers to num_heads
@@ -173,7 +182,7 @@ class SimplifiedTorchPruningManager:
                     num_heads[module.qkv] = getattr(module, 'num_heads', 6)
                     print(f"  Found SwinIR attention: {name} with {module.num_heads} heads")
             
-            print(f"Ignoring {len(ignored_layers)} output layers")
+            print(f"Ignoring {len(ignored_layers)} layers (output/problematic)")
             print(f"Found {len(num_heads)} attention layers")
             
             # Create pruner with conservative settings using BasePruner
@@ -186,7 +195,9 @@ class SimplifiedTorchPruningManager:
                 global_pruning=False,  # Use uniform pruning ratio
                 num_heads=num_heads,
                 ignored_layers=ignored_layers,
-                output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum()
+                output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum(),
+                root_module_types=(nn.Linear, nn.LayerNorm),  # Only consider these types
+                round_to=8  # Round to multiples of 8 for efficiency
             )
             
             print(f"Created conservative pruner with {pruning_ratio:.1%} ratio")
