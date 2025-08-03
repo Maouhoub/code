@@ -60,53 +60,41 @@ from models.select_model import define_Model
 
 class SwinIRWindowAttentionPruner(tp.BasePruningFunc):
     """
-    Custom pruner for SwinIR WindowAttention layers
-    Based on torch-pruning's SwinSelfAttention pruner but adapted for SwinIR
+    Fixed custom pruner for SwinIR WindowAttention layers
+    Following the exact pattern from prune_hf_swin.py but adapted for SwinIR structure
     """
     
     def prune_out_channels(self, layer: nn.Module, idxs: list):
-        """Prune output channels from SwinIR WindowAttention layer"""
+        """Prune output channels from SwinIR attention layer"""
+        # Handle different SwinIR attention structures
         if hasattr(layer, 'qkv') and hasattr(layer, 'proj'):
-            # For SwinIR WindowAttention: qkv is [dim, 3*dim], proj is [dim, dim]
-            old_dim = layer.dim if hasattr(layer, 'dim') else layer.qkv.in_features
-            
-            # Create qkv indices (q, k, v are concatenated)
-            qkv_idxs = []
-            for i in range(3):  # q, k, v
-                offset_idxs = [idx + i * old_dim for idx in idxs]
-                qkv_idxs.extend(offset_idxs)
-            
-            # Prune qkv and projection layers
+            # SwinIR WindowAttention case
+            dim = layer.qkv.in_features
+            # Create indices for q, k, v (concatenated in qkv)
+            qkv_idxs = idxs + [i + dim for i in idxs] + [i + 2*dim for i in idxs]
             tp.prune_linear_out_channels(layer.qkv, qkv_idxs)
             tp.prune_linear_in_channels(layer.proj, idxs)
             tp.prune_linear_out_channels(layer.proj, idxs)
-            
-            # Update layer dimensions
-            new_dim = old_dim - len(idxs)
-            if hasattr(layer, 'dim'):
-                layer.dim = new_dim
-            if hasattr(layer, 'num_heads'):
-                layer.num_heads = max(1, new_dim // 32)  # Ensure valid head count
-            if hasattr(layer, 'scale'):
-                layer.scale = (new_dim // layer.num_heads) ** -0.5
-            
+        
         return layer
     
     def prune_in_channels(self, layer: nn.Module, idxs: list):
-        """Prune input channels from SwinIR WindowAttention layer"""
+        """Prune input channels from SwinIR attention layer"""
         if hasattr(layer, 'qkv'):
             tp.prune_linear_in_channels(layer.qkv, idxs)
         return layer
     
     def get_out_channels(self, layer):
-        if hasattr(layer, 'dim'):
-            return layer.dim
-        elif hasattr(layer, 'qkv'):
+        """Get output channels - critical for torch-pruning"""
+        if hasattr(layer, 'qkv'):
             return layer.qkv.in_features
         return 0
     
     def get_in_channels(self, layer):
-        return self.get_out_channels(layer)
+        """Get input channels - critical for torch-pruning"""
+        if hasattr(layer, 'qkv'):
+            return layer.qkv.in_features
+        return 0
 
 
 class TorchPruningManager:
@@ -162,64 +150,72 @@ class TorchPruningManager:
     
     def create_pruner(self, pruning_ratio=0.2):
         """
-        Create a professional pruner using torch-pruning
-        Following the prune_hf_swin.py example with conservative settings
+        Create a fixed pruner following the exact pattern from prune_hf_swin.py
         """
         try:
-            # Use magnitude importance (simple and effective as per torch-pruning examples)
+            print("Creating fixed pruner following torch-pruning examples...")
+            
+            # Use magnitude importance (proven effective in examples)
             importance = tp.importance.MagnitudeImportance(p=2, group_reduction="mean")
             
-            # Identify layers to ignore (following torch-pruning best practices)
+            # Initialize containers following prune_hf_swin.py pattern
             ignored_layers = []
             num_heads = {}
             customized_pruners = {}
             
+            # Module analysis following the exact pattern from examples
+            print("Analyzing model structure...")
+            
             for name, module in self.network.named_modules():
-                # Ignore final/output layers and upsample layers
+                module_type = type(module).__name__
+                
+                # Ignore output and normalization layers (following examples)
                 if any(keyword in name.lower() for keyword in [
-                    'conv_last', 'output', 'final', 'conv_after_body', 'upsample', 
-                    'conv_before_upsample', 'conv_up', 'patch_embed', 'norm'
+                    'norm', 'output', 'final', 'last', 'upsample', 'patch_embed'
                 ]):
                     ignored_layers.append(module)
+                    continue
                 
-                # Handle SwinIR WindowAttention - map layers to num_heads
-                # This follows the pattern from prune_hf_swin.py
+                # Handle SwinIR attention modules (similar to SwinSelfAttention in examples)
                 if hasattr(module, 'qkv') and hasattr(module, 'proj'):
-                    num_heads_val = getattr(module, 'num_heads', 6)
-                    num_heads[module.qkv] = num_heads_val
+                    # Following prune_hf_swin.py: map attention modules to num_heads
+                    num_heads_val = getattr(module, 'num_heads', 6)  # Default value
                     
-                    # Add custom pruner for SwinIR attention
-                    module_type = type(module)
-                    if module_type not in customized_pruners:
-                        customized_pruners[module_type] = SwinIRWindowAttentionPruner()
+                    # Map the qkv layer to num_heads (following exact example pattern)
+                    if hasattr(module, 'qkv'):
+                        num_heads[module.qkv] = num_heads_val
                     
-                    print(f"  Found SwinIR attention: {name} with {num_heads_val} heads")
+                    # Add custom pruner for this module type
+                    if type(module) not in customized_pruners:
+                        customized_pruners[type(module)] = SwinIRWindowAttentionPruner()
+                    
+                    print(f"  Found attention module: {name} ({module_type}) with {num_heads_val} heads")
             
-            print(f"Ignoring {len(ignored_layers)} layers (output/problematic)")
-            print(f"Found {len(num_heads)} attention layers")
-            print(f"Customized pruners: {len(customized_pruners)}")
+            print(f"Setup complete:")
+            print(f"  - Ignored layers: {len(ignored_layers)}")
+            print(f"  - Attention modules: {len(num_heads)}")
+            print(f"  - Custom pruners: {len(customized_pruners)}")
             
-            # Create pruner with settings based on torch-pruning examples
+            # Create pruner with exact settings from prune_hf_swin.py
             self.pruner = tp.pruner.BasePruner(
                 model=self.network,
                 example_inputs=self.example_inputs,
+                global_pruning=False,  # Use uniform pruning (as in example)
                 importance=importance,
-                iterative_steps=1,  # Conservative iterative steps
+                iterative_steps=1,
                 pruning_ratio=pruning_ratio,
-                global_pruning=False,  # Use uniform pruning ratio as in swin example
                 num_heads=num_heads,
-                ignored_layers=ignored_layers,
                 output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum(),
+                ignored_layers=ignored_layers,
                 customized_pruners=customized_pruners,
-                root_module_types=(nn.Linear, nn.LayerNorm),  # Focus on Linear and LayerNorm as in examples
-                round_to=8  # Round to multiples of 8 for efficiency
+                root_module_types=(nn.Linear, nn.LayerNorm),  # Following example
             )
             
-            print(f"? Created pruner with {pruning_ratio:.1%} ratio")
+            print(f"? Fixed pruner created successfully with {pruning_ratio:.1%} ratio")
             return True
             
         except Exception as e:
-            print(f"Error creating pruner: {e}")
+            print(f"Error creating fixed pruner: {e}")
             traceback.print_exc()
             return False
     
@@ -260,26 +256,23 @@ class TorchPruningManager:
     
     def _fix_attention_heads(self):
         """
-        Fix attention head dimensions after pruning
-        Based on prune_hf_swin.py example
+        Fix attention dimensions after pruning
+        Following the exact pattern from prune_hf_swin.py
         """
         for module in self.network.modules():
-            if hasattr(module, 'qkv') and hasattr(module, 'proj') and hasattr(module, 'num_heads'):
-                # Update attention head dimensions
-                if hasattr(module, 'dim'):
-                    new_dim = module.dim
-                elif hasattr(module, 'qkv'):
-                    new_dim = module.qkv.in_features
-                else:
-                    continue
-                
-                # Update head-related attributes
+            if hasattr(module, 'qkv') and hasattr(module, 'proj'):
+                # Update dimensions following the example
                 if hasattr(module, 'num_heads') and module.num_heads > 0:
+                    new_dim = module.qkv.in_features
                     head_dim = new_dim // module.num_heads
+                    
+                    # Update module attributes
                     if hasattr(module, 'head_dim'):
                         module.head_dim = head_dim
                     if hasattr(module, 'scale'):
                         module.scale = head_dim ** -0.5
+                    if hasattr(module, 'dim'):
+                        module.dim = new_dim
 
 
 class KnowledgeDistillationTrainer:
@@ -422,7 +415,7 @@ class OptimizedPruningPipeline:
             )
             
             # Simple fine-tuning loop (conservative approach)
-            optimizer = torch.optim.Adam(self.current_model.parameters(), lr=1e-4)
+            optimizer = torch.optim.Adam(self.current_model.parameters(), lr=1e-4, weight_decay=1e-4)
             
             self.current_model.train()
             
