@@ -201,6 +201,7 @@ class SimplifiedTorchPruningManager:
                 ignored_layers=ignored_layers,
                 output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum(),
                 unwrapped_parameters=unwrapped_parameters,  # Handle relative_position_bias_table properly
+                root_module_types=(nn.Linear,),  # Only prune Linear layers
                 round_to=8  # Round to multiples of 8 for efficiency
             )
             
