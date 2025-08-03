@@ -32,6 +32,7 @@ import copy
 import time
 import traceback
 import math
+import logging
 from collections import OrderedDict
 
 import torch
@@ -571,7 +572,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     if opt['rank'] == 0:
         logger_name = 'train'
         utils_logger.logger_info(logger_name, os.path.join(opt['path']['log'], logger_name+'.log'))
-        logger = utils_logger.get_logger(logger_name)
+        logger = logging.getLogger(logger_name)
         logger.info(option.dict2str(opt))
 
     # ----------------------------------------
