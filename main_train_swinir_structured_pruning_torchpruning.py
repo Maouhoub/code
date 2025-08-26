@@ -44,6 +44,8 @@ from utils.utils_dist import get_dist_info, init_dist
 
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
+# Import SwinIR layer types so torch-pruning can treat them as root modules
+from models.network_swinir import WindowAttention, PatchMerging
 
 
 class SwinIRWindowAttentionPruner(tp.BasePruningFunc if tp is not None else object):
@@ -112,6 +114,8 @@ class TorchPruningManager:
     def create_pruner(self, pruning_ratio=0.2):
         importance = tp.importance.MagnitudeImportance(p=2, group_reduction='mean')
         ignored_layers = []
+        # Avoid providing a num_heads mapping here - it caused DG/ops indexing errors.
+        # Let BasePruner infer channels or use our customized pruner for WindowAttention.
         num_heads = {}
         customized_pruners = {}
 
@@ -124,9 +128,8 @@ class TorchPruningManager:
 
             # Detect WindowAttention-like modules used in repo's `models/network_swinir.py`:
             if hasattr(module, 'qkv') and hasattr(module, 'proj'):
-                n_heads = getattr(module, 'num_heads', None)
-                if hasattr(module, 'qkv'):
-                    num_heads[module.qkv] = n_heads or 6
+                # Register a custom pruner for WindowAttention modules.
+                # Do NOT map num_heads to sub-modules here to avoid DG ops errors.
                 customized_pruners[type(module)] = SwinIRWindowAttentionPruner()
 
         self.pruner = tp.pruner.BasePruner(
@@ -140,8 +143,10 @@ class TorchPruningManager:
             output_transform=lambda out: out.sum() if isinstance(out, torch.Tensor) else out[0].sum(),
             ignored_layers=ignored_layers,
             customized_pruners=customized_pruners,
-            root_module_types=(nn.Linear, nn.LayerNorm),
+            # Add SwinIR-specific root module types so our custom pruner is applied
+            root_module_types=(nn.Linear, nn.LayerNorm, WindowAttention, PatchMerging),
         )
+
         return True
 
     def prune(self):
