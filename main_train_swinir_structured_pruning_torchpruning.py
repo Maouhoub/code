@@ -116,11 +116,14 @@ class TorchPruningManager:
         # that are not wrapped by a sub-module. Tell DependencyGraph to treat
         # these parameters as unwrapped parameters so TP will handle them correctly
         # instead of trying to infer channel dims and failing with IndexError.
+        # TP expects `unwrapped_parameters` to be an iterable of (param, name)
+        # pairs; provide the parameter plus its fullname to avoid internal unpacking
+        # errors in DependencyGraph._detect_unwrapped_parameters.
         unwrapped = []
         try:
             for name, p in self.network.named_parameters():
                 if 'relative_position_bias_table' in name:
-                    unwrapped.append(p)
+                    unwrapped.append((p, name))
         except Exception:
             unwrapped = []
 
