@@ -10,20 +10,21 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from main_train_swinir_structured_pruning_torchpruning import TorchPruningManager
-from models.select_model import define_Model
-from utils.utils_option import parse
+from models.network_swinir import SwinIR
 
 
-def run_smoke(json_path='options/swinir/train_swinir_sr_lightweight.json'):
-    # load options (fall back to minimal config if file not found)
+def run_smoke():
+    # Create a lightweight SwinIR instance directly to avoid depending on the
+    # repo option parsing (which expects many keys). Keep the model small so
+    # pruning is fast in a smoke test.
+    model = SwinIR(img_size=64, in_chans=3, embed_dim=48, depths=[2, 2],
+                   num_heads=[4, 4], window_size=8, mlp_ratio=2,
+                   upsampler='', resi_connection='1conv')
+    # ensure model replicates train initialization behavior
     try:
-        opt = parse(json_path, is_train=True)
+        model.apply(model._init_weights)
     except Exception:
-        opt = {'netG': {'net_type': 'swinir', 'upscale': 2, 'in_chans': 3, 'img_size': 64, 'window_size': 8,
-                        'depths': [2,2], 'embed_dim': 48, 'num_heads': [4,4], 'mlp_ratio': 2}} 
-
-    model = define_Model(opt)
-    model.init_train()
+        pass
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
