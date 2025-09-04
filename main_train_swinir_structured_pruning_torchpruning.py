@@ -112,8 +112,21 @@ class TorchPruningManager:
         device = next(self.network.parameters()).device
         if hasattr(self.example_inputs, 'device') and self.example_inputs.device != device:
             self.example_inputs = self.example_inputs.to(device)
+        # Some SwinIR modules contain parameters (e.g. relative_position_bias_table)
+        # that are not wrapped by a sub-module. Tell DependencyGraph to treat
+        # these parameters as unwrapped parameters so TP will handle them correctly
+        # instead of trying to infer channel dims and failing with IndexError.
+        unwrapped = []
+        try:
+            for name, p in self.network.named_parameters():
+                if 'relative_position_bias_table' in name:
+                    unwrapped.append(p)
+        except Exception:
+            unwrapped = []
 
-        self.dependency_graph = tp.DependencyGraph().build_dependency(self.network, example_inputs=self.example_inputs)
+        self.dependency_graph = tp.DependencyGraph().build_dependency(
+            self.network, example_inputs=self.example_inputs, unwrapped_parameters=unwrapped
+        )
         self.original_macs, self.original_params = tp.utils.count_ops_and_params(self.network, self.example_inputs)
 
     def create_pruner(self, pruning_ratio=0.2):
