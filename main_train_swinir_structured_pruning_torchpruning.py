@@ -60,11 +60,13 @@ class SwinIRWindowAttentionPruner(tp.BasePruningFunc if tp is not None else obje
         # qkv: Linear with out_features = 3 * embed_dim (concatenated Q,K,V)
         # proj: Linear with in/out = embed_dim
         if hasattr(layer, 'qkv') and hasattr(layer, 'proj'):
-            # compute qkv indices
-            dim = layer.qkv.in_features
-            qkv_idxs = idxs + [i + dim for i in idxs] + [i + 2 * dim for i in idxs]
+            # The DepGraph/BasePruner will hand idxs in the "embed_dim" domain
+            # (not 3*embed). Translate those embed indices to the qkv concatenated
+            # output space by offsetting by embed_dim for K and 2*embed_dim for V.
+            embed = layer.qkv.out_features // 3
+            qkv_idxs = [i for i in idxs] + [i + embed for i in idxs] + [i + 2 * embed for i in idxs]
             tp.prune_linear_out_channels(layer.qkv, qkv_idxs)
-            # projection: remove corresponding in-channels and out-channels when safe
+            # projection: remove corresponding in-channels in proj (embed-dim domain)
             tp.prune_linear_in_channels(layer.proj, idxs)
         return layer
 
@@ -74,8 +76,11 @@ class SwinIRWindowAttentionPruner(tp.BasePruningFunc if tp is not None else obje
         return layer
 
     def get_out_channels(self, layer):
+        # Report the embed-dimension (not 3*embed) so the pruner indices are
+        # given in the per-embedding domain. This makes it easier to translate
+        # to q/k/v concatenated indices inside prune_out_channels.
         if hasattr(layer, 'qkv') and hasattr(layer.qkv, 'weight'):
-            return layer.qkv.weight.shape[0]
+            return layer.qkv.weight.shape[0] // 3
         return 0
 
     def get_in_channels(self, layer):
@@ -129,7 +134,11 @@ class TorchPruningManager:
             # Detect WindowAttention-like modules used in repo's `models/network_swinir.py`:
             if hasattr(module, 'qkv') and hasattr(module, 'proj'):
                 # Register a custom pruner for WindowAttention modules.
-                # Do NOT map num_heads to sub-modules here to avoid DG ops errors.
+                # Map num_heads for the qkv linear so TP can prune whole heads.
+                try:
+                    num_heads[module.qkv] = int(getattr(module, 'num_heads', 0))
+                except Exception:
+                    pass
                 customized_pruners[type(module)] = SwinIRWindowAttentionPruner()
 
         self.pruner = tp.pruner.BasePruner(
@@ -160,15 +169,16 @@ class TorchPruningManager:
         for m in self.network.modules():
             if hasattr(m, 'qkv') and hasattr(m, 'proj'):
                 if hasattr(m, 'num_heads') and m.num_heads > 0:
-                    new_dim = m.qkv.in_features
-                    head_dim = new_dim // m.num_heads
-                    if hasattr(m, 'head_dim'):
-                        m.head_dim = head_dim
-                    if hasattr(m, 'scale'):
-                        try:
+                    # Derive embed dim from qkv.out_features (3 * embed)
+                    try:
+                        embed = m.qkv.out_features // 3
+                        head_dim = embed // m.num_heads
+                        if hasattr(m, 'head_dim'):
+                            m.head_dim = head_dim
+                        if hasattr(m, 'scale'):
                             m.scale = head_dim ** -0.5
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
 
         cur_macs, cur_params = tp.utils.count_ops_and_params(self.network, self.example_inputs)
         return (self.original_macs, self.original_params, cur_macs, cur_params)
