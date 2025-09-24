@@ -1,0 +1,72 @@
+{
+  "task": "sr",
+  "model": "plain",
+  "gpu_ids": [0],
+  "scale": 2,
+  "num_gpu": 1,
+  "manual_seed": 0,
+
+  "datasets": {
+    "train": {
+      "name": "train_dataset",
+      "dataset_type": "sr",
+      "dataroot_H": "trainsets/trainH",
+      "dataroot_L": "trainsets/trainL",
+      "H_size": 96,
+      "dataloader_shuffle": true,
+      "dataloader_num_workers": 8,
+      "dataloader_batch_size": 16
+    },
+    "test": {
+      "name": "test_dataset",
+      "dataset_type": "sr",
+      "dataroot_H": "testsets/set5/HR",
+      "dataroot_L": "testsets/set5/LR_bicubic/X2"
+    }
+  },
+
+  "netG": {
+    "net_type": "swinir",
+    "upscale": 2,
+    "in_chans": 3,
+    "img_size": 64,
+    "window_size": 8,
+    "img_range": 1.0,
+    "depths": [6, 6, 6, 6],
+    "embed_dim": 60,
+    "num_heads": [6, 6, 6, 6],
+    "mlp_ratio": 2,
+    "upsampler": "pixelshuffledirect",
+    "resi_connection": "1conv"
+  },
+
+  "train": {
+    "G_lossfn_type": "l1",
+    "G_lossfn_weight": 1.0,
+    "G_optimizer_type": "adam",
+    "G_optimizer_lr": 2e-4,
+    "G_optimizer_wd": 0,
+    "G_optimizer_clipgrad": null,
+    "G_scheduler_type": "MultiStepLR",
+    "G_scheduler_milestones": [250000, 400000, 450000, 475000],
+    "G_scheduler_gamma": 0.5,
+    "G_regularizer_orthstep": null,
+    "G_regularizer_clipstep": null,
+    "checkpoint_test": 5000,
+    "checkpoint_save": 5000,
+    "checkpoint_print": 200
+  },
+
+  "fine_tune": {
+    "L2_ft_epochs": 10
+  },
+
+  "path": {
+    "root": "superresolution",
+    "pretrained_netG": null,
+    "pretrained_netE": null,
+    "models": "superresolution/swinir_sr_structured_pruning/models",
+    "images": "superresolution/swinir_sr_structured_pruning/images",
+    "log": "superresolution/swinir_sr_structured_pruning"
+  }
+}

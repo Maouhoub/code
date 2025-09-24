@@ -48,6 +48,7 @@ except ImportError:
         print("? Using local FLOPs calculation")
     except ImportError:
         print("? No FLOPs calculation available")
+        PTFLOPS_AVAILABLE = False
 
 from utils import utils_logger
 from utils import utils_image as util
@@ -93,14 +94,16 @@ def calculate_model_stats(model, input_shape=(3, 64, 64), device='cpu'):
     try:
         if PTFLOPS_AVAILABLE:
             # Using ptflops
-            dummy_input = torch.randn(1, *input_shape).to(device)
             flops, params = get_model_complexity_info(model, input_shape, as_strings=False, 
                                                     print_per_layer_stat=False, verbose=False)
             stats['flops'] = flops
         else:
             # Using local utils
-            flops = get_model_flops(model, input_shape, print_per_layer_stat=False)
-            stats['flops'] = flops
+            try:
+                flops = get_model_flops(model, input_shape, print_per_layer_stat=False)
+                stats['flops'] = flops
+            except:
+                stats['flops'] = 0
     except Exception as e:
         print(f"Warning: Could not calculate FLOPs: {e}")
         stats['flops'] = 0
@@ -123,28 +126,33 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
     
     print(f"Applying structured channel pruning with ratio: {pruning_ratio}")
     
-    # Create pruner
-    example_inputs = torch.randn(1, 3, 64, 64)
-    if next(model.parameters()).is_cuda:
-        example_inputs = example_inputs.cuda()
-    
-    # Define importance metric (L1 norm for channels)
-    imp = tp.importance.MagnitudeImportance(p=1)  # L1 norm
-    
-    # Initialize pruner
-    pruner = tp.pruner.MagnitudePruner(
-        model, 
-        example_inputs, 
-        importance=imp,
-        pruning_ratio=pruning_ratio,
-        root_module_types=[nn.Conv2d, nn.Linear],  # Prune conv and linear layers
-        ignored_layers=[],
-    )
-    
-    # Apply pruning
-    pruner.step()
-    
-    return model
+    try:
+        # Create pruner
+        example_inputs = torch.randn(1, 3, 64, 64)
+        if next(model.parameters()).is_cuda:
+            example_inputs = example_inputs.cuda()
+        
+        # Define importance metric (L1 norm for channels)
+        imp = tp.importance.MagnitudeImportance(p=1)  # L1 norm
+        
+        # Initialize pruner
+        pruner = tp.pruner.MagnitudePruner(
+            model, 
+            example_inputs, 
+            importance=imp,
+            pruning_ratio=pruning_ratio,
+            root_module_types=[nn.Conv2d, nn.Linear],  # Prune conv and linear layers
+            ignored_layers=[],
+        )
+        
+        # Apply pruning
+        pruner.step()
+        
+        return model
+    except Exception as e:
+        print(f"Error with Torch-Pruning: {e}")
+        print("Falling back to PyTorch native structured pruning")
+        return apply_structured_pruning_native(model, pruning_ratio)
 
 def apply_structured_pruning_native(model, pruning_ratio=0.1):
     """
@@ -155,12 +163,18 @@ def apply_structured_pruning_native(model, pruning_ratio=0.1):
     # Collect all Conv2d layers for structured pruning
     modules_to_prune = []
     for name, module in model.named_modules():
-        if isinstance(module, nn.Conv2d):
+        if isinstance(module, nn.Conv2d) and module.out_channels > 1:  # Skip if only 1 channel
             modules_to_prune.append((module, 'weight'))
+    
+    print(f"Found {len(modules_to_prune)} Conv2d layers to prune")
     
     # Apply structured pruning (L1 norm, dim=0 for channel pruning)
     for module, param_name in modules_to_prune:
-        prune.ln_structured(module, name=param_name, amount=pruning_ratio, n=1, dim=0)
+        try:
+            prune.ln_structured(module, name=param_name, amount=pruning_ratio, n=1, dim=0)
+        except Exception as e:
+            print(f"Could not prune layer {module}: {e}")
+            continue
     
     return model
 
@@ -227,7 +241,78 @@ def print_results_table(results):
     print("      Negative changes in PSNR/SSIM indicate quality degradation")
     print("="*100)
 
-def main(json_path='options/train_msrresnet_psnr.json'):
+def evaluate_model(model, test_loader, opt, current_step, suffix=""):
+    """
+    Comprehensive model evaluation function.
+    Returns PSNR, SSIM, and average inference time.
+    """
+    print(f"\n?? Evaluating model ({suffix})...")
+    
+    avg_psnr = 0.0
+    avg_ssim = 0.0
+    avg_inference_time = 0.0
+    idx = 0
+    border = opt['scale']
+
+    model_network = model.netG if hasattr(model, 'netG') else model
+    model_network.eval()
+    
+    with torch.no_grad():
+        for test_data in test_loader:
+            idx += 1
+            image_name_ext = os.path.basename(test_data['L_path'][0])
+            img_name, ext = os.path.splitext(image_name_ext)
+
+            # Create output directory
+            if suffix:
+                img_dir = os.path.join(opt['path']['images'], f"{img_name}_{suffix}")
+            else:
+                img_dir = os.path.join(opt['path']['images'], img_name)
+            util.mkdir(img_dir)
+
+            # Forward pass with timing
+            model.feed_data(test_data)
+            start_time = time.time()
+            model.test()
+            end_time = time.time()
+            
+            inference_time = end_time - start_time
+            avg_inference_time += inference_time
+
+            # Get results
+            visuals = model.current_visuals()
+            E_img = util.tensor2uint(visuals['E'])
+            H_img = util.tensor2uint(visuals['H'])
+
+            # Save estimated image
+            save_img_path = os.path.join(img_dir, f'{img_name}_{current_step}.png')
+            util.imsave(E_img, save_img_path)
+
+            # Calculate PSNR
+            current_psnr = util.calculate_psnr(E_img, H_img, border=border)
+            avg_psnr += current_psnr
+            
+            # Calculate SSIM
+            current_ssim = calculate_ssim(E_img, H_img)
+            avg_ssim += current_ssim
+
+            print(f'{idx:>4d} --> {image_name_ext:>15s} | PSNR: {current_psnr:<6.2f}dB | SSIM: {current_ssim:<6.4f} | Time: {inference_time:<6.4f}s')
+
+    # Calculate averages
+    avg_psnr /= idx
+    avg_ssim /= idx
+    avg_inference_time /= idx
+
+    print(f"\n?? Evaluation Results ({suffix}):")
+    print(f"  Average PSNR: {avg_psnr:.4f} dB")
+    print(f"  Average SSIM: {avg_ssim:.4f}")
+    print(f"  Average Inference Time: {avg_inference_time:.4f} s")
+    print(f"  Total Images: {idx}")
+    
+    return avg_psnr, avg_ssim, avg_inference_time
+
+
+def main(json_path='options/train_swinir_sr_structured_pruning.json'):
 
     '''
     # ----------------------------------------
@@ -313,7 +398,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
-            # Randomly select 150 images
+            # Randomly select 150 images for fine-tuning
             train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), min(150, len(train_set))))
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
@@ -385,7 +470,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # =============================================================================
     print("\nEvaluating baseline model...")
     if opt['rank'] == 0:
-        baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(model, test_loader, opt, 0, "baseline")
+        baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(model, test_loader, opt, current_step, "baseline")
         results['PSNR (dB)']['baseline'] = baseline_psnr
         results['SSIM']['baseline'] = baseline_ssim
         results['Inference Time (s)']['baseline'] = baseline_inference_time
@@ -528,77 +613,6 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         # Print final comparison table
         print_results_table(results)
 
-
-def evaluate_model(model, test_loader, opt, current_step, suffix=""):
-    """
-    Comprehensive model evaluation function.
-    Returns PSNR, SSIM, and average inference time.
-    """
-    print(f"\n?? Evaluating model ({suffix})...")
-    
-    avg_psnr = 0.0
-    avg_ssim = 0.0
-    avg_inference_time = 0.0
-    idx = 0
-    border = opt['scale']
-
-    model_network = model.netG if hasattr(model, 'netG') else model
-    model_network.eval()
-    
-    with torch.no_grad():
-        for test_data in test_loader:
-            idx += 1
-            image_name_ext = os.path.basename(test_data['L_path'][0])
-            img_name, ext = os.path.splitext(image_name_ext)
-
-            # Create output directory
-            if suffix:
-                img_dir = os.path.join(opt['path']['images'], f"{img_name}_{suffix}")
-            else:
-                img_dir = os.path.join(opt['path']['images'], img_name)
-            util.mkdir(img_dir)
-
-            # Forward pass with timing
-            model.feed_data(test_data)
-            start_time = time.time()
-            model.test()
-            end_time = time.time()
-            
-            inference_time = end_time - start_time
-            avg_inference_time += inference_time
-
-            # Get results
-            visuals = model.current_visuals()
-            E_img = util.tensor2uint(visuals['E'])
-            H_img = util.tensor2uint(visuals['H'])
-
-            # Save estimated image
-            save_img_path = os.path.join(img_dir, f'{img_name}_{current_step}.png')
-            util.imsave(E_img, save_img_path)
-
-            # Calculate PSNR
-            current_psnr = util.calculate_psnr(E_img, H_img, border=border)
-            avg_psnr += current_psnr
-            
-            # Calculate SSIM
-            current_ssim = calculate_ssim(E_img, H_img)
-            avg_ssim += current_ssim
-
-            print(f'{idx:>4d} --> {image_name_ext:>15s} | PSNR: {current_psnr:<6.2f}dB | SSIM: {current_ssim:<6.4f} | Time: {inference_time:<6.4f}s')
-
-    # Calculate averages
-    avg_psnr /= idx
-    avg_ssim /= idx
-    avg_inference_time /= idx
-
-    print(f"\n?? Evaluation Results ({suffix}):")
-    print(f"  Average PSNR: {avg_psnr:.4f} dB")
-    print(f"  Average SSIM: {avg_ssim:.4f}")
-    print(f"  Average Inference Time: {avg_inference_time:.4f} s")
-    print(f"  Total Images: {idx}")
-    
-    return avg_psnr, avg_ssim, avg_inference_time
-
     # =============================================================================
     # Model Saving
     # =============================================================================
@@ -648,6 +662,7 @@ def evaluate_model(model, test_loader, opt, current_step, suffix=""):
         
         print("\n?? Structured channel pruning completed successfully!")
         print("="*80)
+
 
 if __name__ == '__main__':
     main()
