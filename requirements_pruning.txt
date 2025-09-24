@@ -1,0 +1,4 @@
+# Additional requirements for structured pruning
+torch-pruning>=1.3.0
+fvcore>=0.1.5
+thop>=0.1.1
