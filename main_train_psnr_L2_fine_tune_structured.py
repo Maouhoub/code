@@ -67,6 +67,8 @@ def count_flops(model, input_shape=(1, 3, 64, 64)):
     
     if FVCORE_AVAILABLE:
         try:
+            # Ensure model is in eval mode for FLOP counting
+            model.eval()
             dummy_input = torch.randn(input_shape).to(device)
             flops_dict = flop_count(model, (dummy_input,), supported_ops=None)
             total_flops = sum(flops_dict.values())
@@ -76,12 +78,25 @@ def count_flops(model, input_shape=(1, 3, 64, 64)):
     
     if THOP_AVAILABLE:
         try:
+            # Create a simple wrapper to avoid deepcopy issues with pruned models
             dummy_input = torch.randn(input_shape).to(device)
-            model_copy = copy.deepcopy(model)
-            flops, params = profile(model_copy, inputs=(dummy_input,), verbose=False)
+            
+            # Try direct profiling first
+            model.eval()
+            flops, params = profile(model, inputs=(dummy_input,), verbose=False)
             return flops
         except Exception as e:
             print(f"THOP FLOP counting failed: {e}")
+            # Try with a fresh model instance if deepcopy fails
+            try:
+                # Estimate FLOPs based on parameters (rough approximation)
+                total_params = sum(p.numel() for p in model.parameters())
+                # Very rough estimate: assume each parameter is used in one MAC operation per input pixel
+                estimated_flops = total_params * input_shape[2] * input_shape[3]
+                print(f"Using estimated FLOPs based on parameters: {estimated_flops/1e6:.1f}M")
+                return estimated_flops
+            except:
+                pass
     
     print("No FLOP counting library available.")
     return None
@@ -167,33 +182,24 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.3):
         device = next(model.parameters()).device
         example_inputs = torch.randn(1, 3, 64, 64).to(device)
         
-        # Create dependency graph
-        DG = tp.DependencyGraph()
-        DG.build_dependency(model, example_inputs=example_inputs)
+        # Use the more recent API for torch-pruning
+        ignored_layers = []
         
-        # Define importance function (L1 norm)
-        def importance_fn(layer):
-            if hasattr(layer, 'weight') and layer.weight is not None:
-                return torch.norm(layer.weight.data.view(layer.weight.size(0), -1), p=1, dim=1)
-            return None
+        # Find prunable layers and apply importance-based pruning
+        pruner = tp.pruner.MagnitudePruner(
+            model,
+            example_inputs,
+            importance=tp.importance.MagnitudeImportance(p=1),  # L1 importance
+            ignored_layers=ignored_layers,
+            pruning_ratio=pruning_ratio,
+            round_to=1
+        )
         
-        # Apply pruning
-        pruning_idxs = []
-        for m in model.modules():
-            if isinstance(m, torch.nn.Conv2d):
-                importance = importance_fn(m)
-                if importance is not None:
-                    num_channels = len(importance)
-                    num_prune = int(pruning_ratio * num_channels)
-                    if num_prune > 0:
-                        _, sorted_idx = torch.sort(importance)
-                        pruning_idx = sorted_idx[:num_prune].tolist()
-                        pruning_idxs.extend(pruning_idx)
-                        
-                        # Apply pruning to this layer
-                        pruning_plan = DG.get_pruning_plan(m, tp.prune_conv_out_channels, idxs=pruning_idx)
-                        pruning_plan.exec()
+        # Execute pruning
+        for g in pruner.step(interactive=False):
+            g.prune()
         
+        print(f"   Applied structured pruning with {pruning_ratio:.1%} ratio using Torch-Pruning")
         return model
         
     except Exception as e:
@@ -202,22 +208,38 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.3):
 
 def apply_basic_structured_pruning(model, pruning_ratio=0.3):
     """Apply basic structured pruning using PyTorch's built-in pruning."""
-    importance_dict = create_pruning_importance_dict(model)
+    print(f"   Applying basic structured pruning...")
+    
+    pruned_layers = 0
     
     for name, module in model.named_modules():
-        if isinstance(module, torch.nn.Conv2d) and name in importance_dict:
-            importance = importance_dict[name]
-            num_channels = len(importance)
-            num_prune = int(pruning_ratio * num_channels)
-            
-            if num_prune > 0 and num_prune < num_channels:
-                # Get indices of least important channels
-                _, sorted_idx = torch.sort(importance)
-                prune_idx = sorted_idx[:num_prune].tolist()
+        # Only prune Conv2d layers, but be selective about which ones
+        if isinstance(module, torch.nn.Conv2d):
+            # Skip very small layers or critical layers
+            if module.weight.size(0) <= 8:  # Skip layers with very few output channels
+                continue
                 
-                # Apply structured pruning
-                prune.ln_structured(module, name='weight', amount=pruning_ratio, n=1, dim=0)
+            # Skip layers that might be critical for the architecture
+            if any(skip_name in name for skip_name in ['patch_embed', 'norm', 'head']):
+                continue
+            
+            try:
+                # Calculate actual pruning amount ensuring we don't remove all channels
+                original_channels = module.weight.size(0)
+                channels_to_remove = min(int(pruning_ratio * original_channels), original_channels - 1)
+                actual_ratio = channels_to_remove / original_channels
+                
+                if actual_ratio > 0.05:  # Only prune if we're removing at least 5% of channels
+                    # Apply structured pruning
+                    prune.ln_structured(module, name='weight', amount=actual_ratio, n=1, dim=0)
+                    pruned_layers += 1
+                    print(f"     Pruned {name}: {channels_to_remove}/{original_channels} channels ({actual_ratio:.1%})")
+                    
+            except Exception as e:
+                print(f"     Failed to prune {name}: {e}")
+                continue
     
+    print(f"   Applied basic pruning to {pruned_layers} layers")
     return model
 
 def print_model_summary(model, title="Model Summary"):
@@ -241,8 +263,12 @@ def print_model_summary(model, title="Model Summary"):
             print(f"FLOPs: {flops:,}")
     
     # Model sparsity
-    sparsity = util.compute_sparsity(model)
-    print(f"Model sparsity: {sparsity:.2%}")
+    try:
+        sparsity = util.compute_sparsity(model)
+        print(f"Model sparsity: {sparsity:.2%}")
+    except Exception as e:
+        print(f"Sparsity calculation failed: {e}")
+        print("Model sparsity: N/A")
     
     print(f"{'='*50}\n")
 
@@ -254,7 +280,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     '''
     
-    print("?? Starting SwinIR-Light Structured Pruning...")
+    print(" Starting SwinIR-Light Structured Pruning...")
     print("=" * 60)
 
     parser = argparse.ArgumentParser()
@@ -264,37 +290,37 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     parser.add_argument('--dist', default=False)
 
     opt = option.parse(parser.parse_args().opt, is_train=True)
-    print(f"? Configuration loaded from: {parser.parse_args().opt}")
+    print(f" Configuration loaded from: {parser.parse_args().opt}")
     opt['dist'] = parser.parse_args().dist
 
     # ----------------------------------------
     # distributed settings
     # ----------------------------------------
     if opt['dist']:
-        print("?? Initializing distributed training...")
+        print(" Initializing distributed training...")
         init_dist('pytorch')
     opt['rank'], opt['world_size'] = get_dist_info()
-    print(f"?? Process rank: {opt['rank']}, World size: {opt['world_size']}")
+    print(f" Process rank: {opt['rank']}, World size: {opt['world_size']}")
 
     if opt['rank'] == 0:
-        print("?? Creating output directories...")
+        print(" Creating output directories...")
         util.mkdirs((path for key, path in opt['path'].items() if 'pretrained' not in key))
-        print("? Output directories created")
+        print(" Output directories created")
 
     # ----------------------------------------
     # update opt
     # ----------------------------------------
     # -->-->-->-->-->-->-->-->-->-->-->-->-->-
-    print("?? Searching for existing checkpoints...")
+    print(" Searching for existing checkpoints...")
     init_iter_G, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
     init_iter_E, init_path_E = option.find_last_checkpoint(opt['path']['models'], net_type='E')
     opt['path']['pretrained_netG'] = init_path_G
     opt['path']['pretrained_netE'] = init_path_E
     init_iter_optimizerG, init_path_optimizerG = option.find_last_checkpoint(opt['path']['models'], net_type='optimizerG')
-    print(f"?? Found optimizer iterations: {init_iter_optimizerG}, path: {init_path_optimizerG}")
+    print(f" Found optimizer iterations: {init_iter_optimizerG}, path: {init_path_optimizerG}")
     opt['path']['pretrained_optimizerG'] = init_path_optimizerG
     current_step = max(init_iter_G, init_iter_E, init_iter_optimizerG)
-    print(f"?? Starting from step: {current_step}")
+    print(f" Starting from step: {current_step}")
 
     border = opt['scale']
     # --<--<--<--<--<--<--<--<--<--<--<--<--<-
@@ -320,16 +346,16 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     # seed
     # ----------------------------------------
-    print("?? Setting up random seeds...")
+    print(" Setting up random seeds...")
     seed = opt['train']['manual_seed']
     if seed is None:
         seed = random.randint(1, 10000)
-    print('?? Random seed: {}'.format(seed))
+    print(' Random seed: {}'.format(seed))
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    print("? Random seeds set for reproducibility")
+    print(" Random seeds set for reproducibility")
 
     '''
     # ----------------------------------------
@@ -337,7 +363,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     '''
 
-    print("\n?? Creating datasets and dataloaders...")
+    print("\n Creating datasets and dataloaders...")
     print("-" * 40)
     
     # ----------------------------------------
@@ -345,9 +371,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # 2) create_dataloader for train and test
     # ----------------------------------------
     for phase, dataset_opt in opt['datasets'].items():
-        print(f"?? Setting up {phase} dataset...")
+        print(f" Setting up {phase} dataset...")
         if phase == 'train':
-            print(f"  ?? Loading training dataset from: {dataset_opt.get('dataroot_H', 'N/A')}")
+            print(f"   Loading training dataset from: {dataset_opt.get('dataroot_H', 'N/A')}")
             train_set = define_Dataset(dataset_opt)
             original_size = len(train_set)
             # Randomly select 150 images
@@ -355,9 +381,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), subset_size))
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
-                print(f'  ?? Original dataset size: {original_size:,d}')
-                print(f'  ??  Subset for fine-tuning: {len(train_set):,d}')
-                print(f'  ?? Training iterations per epoch: {train_size:,d}')
+                print(f'   Original dataset size: {original_size:,d}')
+                print(f'    Subset for fine-tuning: {len(train_set):,d}')
+                print(f'   Training iterations per epoch: {train_size:,d}')
             if opt['dist']:
                 train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True, seed=seed)
                 train_loader = DataLoader(train_set,
@@ -376,16 +402,16 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                                           pin_memory=True)
 
         elif phase == 'test':
-            print(f"  ?? Loading test dataset from: {dataset_opt.get('dataroot_H', 'N/A')}")
+            print(f"   Loading test dataset from: {dataset_opt.get('dataroot_H', 'N/A')}")
             test_set = define_Dataset(dataset_opt)
             test_loader = DataLoader(test_set, batch_size=1,
                                      shuffle=False, num_workers=1,
                                      drop_last=False, pin_memory=True)
-            print(f"  ?? Test dataset size: {len(test_set):,d}")
+            print(f"   Test dataset size: {len(test_set):,d}")
         else:
             raise NotImplementedError("Phase [%s] is not recognized." % phase)
     
-    print("? All datasets and dataloaders created successfully")
+    print(" All datasets and dataloaders created successfully")
 
     '''
     # ----------------------------------------
@@ -393,12 +419,12 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     '''
 
-    print("\n???  Initializing model...")
+    print("\n  Initializing model...")
     print("-" * 40)
     model = define_Model(opt)
-    print("? Model architecture loaded")
+    print(" Model architecture loaded")
     model.init_train()
-    print("? Model training initialized")
+    print(" Model training initialized")
 
     # Results tracking
     results = {
@@ -415,14 +441,14 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     print_model_summary(model.netG, "Original Model")
     
     # Evaluate original model performance
-    print("?? Evaluating original model performance...")
-    print("  ?? Measuring PSNR/SSIM on test set...")
+    print(" Evaluating original model performance...")
+    print("   Measuring PSNR/SSIM on test set...")
     original_psnr, original_ssim = evaluate_model_metrics(model, test_loader, border=border)
-    print("  ??  Measuring inference time...")
+    print("    Measuring inference time...")
     original_inference_time = measure_inference_time(model.netG)
-    print("  ?? Counting parameters...")
+    print("   Counting parameters...")
     original_params, _ = count_parameters(model.netG)
-    print("  ?? Calculating FLOPs...")
+    print("   Calculating FLOPs...")
     original_flops = count_flops(model.netG)
     
     results['before_pruning'] = {
@@ -460,20 +486,44 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         print(f"Applying structured pruning with ratio: {pruning_ratio:.1%}")
         
         # Apply structured pruning using Torch-Pruning or fallback
+        print(f" Model before pruning - Parameters: {count_parameters(model.netG)[0]:,}")
+        
         if TORCH_PRUNING_AVAILABLE:
-            print("?? Using Torch-Pruning for structured channel pruning...")
-            model.netG = apply_structured_pruning_torch_pruning(model.netG, pruning_ratio)
+            print(" Using Torch-Pruning for structured channel pruning...")
+            try:
+                model.netG = apply_structured_pruning_torch_pruning(model.netG, pruning_ratio)
+            except Exception as e:
+                print(f" Torch-Pruning failed completely: {e}")
+                print(" Falling back to basic structured pruning...")
+                model.netG = apply_basic_structured_pruning(model.netG, pruning_ratio)
         else:
-            print("??  Using basic structured pruning (Torch-Pruning not available)...")
+            print("  Using basic structured pruning (Torch-Pruning not available)...")
             model.netG = apply_basic_structured_pruning(model.netG, pruning_ratio)
         
-        print("? Pruning applied successfully")
+        print(f" Model after pruning - Parameters: {count_parameters(model.netG)[0]:,}")
+        
+        print(" Pruning applied successfully")
         print_model_summary(model.netG, f"Model after pruning iteration {pruning_iteration}")
         
-        # Re-initialize optimizer after pruning
-        print("?? Re-initializing optimizer after pruning...")
+        # Re-initialize optimizer after pruning (but skip model reloading)
+        print(" Re-initializing optimizer after pruning...")
+        # Save the current pruned model state
+        current_netG_state = model.netG.state_dict()
+        
+        # Temporarily disable pretrained model loading
+        original_pretrained_path = opt['path']['pretrained_netG']
+        opt['path']['pretrained_netG'] = None
+        
+        # Re-initialize training components without reloading weights
         model.init_train()
-        print("? Optimizer re-initialized")
+        
+        # Restore the pruned model state
+        model.netG.load_state_dict(current_netG_state)
+        
+        # Restore the original pretrained path for future use
+        opt['path']['pretrained_netG'] = original_pretrained_path
+        
+        print(" Optimizer re-initialized with pruned model state")
 
         '''
         # ----------------------------------------
@@ -482,11 +532,11 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         '''
         e_pochs = opt['fine_tune']['L2_ft_epochs']
 
-        print(f"\n?? Starting fine-tuning for {e_pochs} epochs...")
+        print(f"\n Starting fine-tuning for {e_pochs} epochs...")
         print("-" * 30)
 
         for epoch in range(e_pochs):
-            print(f"?? Epoch {epoch + 1}/{e_pochs}")
+            print(f" Epoch {epoch + 1}/{e_pochs}")
             epoch_start_time = time.time()
             if opt['dist']:
                 train_sampler.set_epoch(epoch + seed)
@@ -495,7 +545,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             for i, train_data in enumerate(train_loader):
                 batch_count += 1
                 if batch_count % 10 == 0 or batch_count == 1:
-                    print(f"  ?? Processing batch {batch_count}/{len(train_loader)} (step: {current_step})")
+                    print(f"   Processing batch {batch_count}/{len(train_loader)} (step: {current_step})")
                 
                 current_step += 1
 
@@ -520,7 +570,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             if opt['rank'] == 0:
                 epoch_time = time.time() - epoch_start_time
                 logs = model.current_log()  # such as loss
-                message = f'  ?? Epoch {epoch + 1} completed in {epoch_time:.2f}s - '
+                message = f'   Epoch {epoch + 1} completed in {epoch_time:.2f}s - '
                 for k, v in logs.items():  # merge log information into message
                     message += '{:s}: {:.3e} '.format(k, v)
                 print(message)
@@ -534,15 +584,15 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             print("-"*50)
             
             # Comprehensive evaluation
-            print("  ?? Evaluating pruned model performance...")
+            print("   Evaluating pruned model performance...")
             current_psnr, current_ssim = evaluate_model_metrics(model, test_loader, border=border)
-            print("  ??  Measuring inference time...")
+            print("    Measuring inference time...")
             current_inference_time = measure_inference_time(model.netG)
-            print("  ?? Counting parameters...")
+            print("   Counting parameters...")
             current_params, _ = count_parameters(model.netG)
-            print("  ?? Calculating FLOPs...")
+            print("   Calculating FLOPs...")
             current_flops = count_flops(model.netG)
-            print("  ?? Computing sparsity...")
+            print("   Computing sparsity...")
             current_sparsity = util.compute_sparsity(model.netG)
             
             # Store iteration results
@@ -580,7 +630,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 print(f"FLOP reduction: {flop_reduction:.1f}%")
             
             # Save some sample images from this iteration
-            print("  ???  Saving sample images...")
+            print("    Saving sample images...")
             sample_count = 0
             for test_data in test_loader:
                 if sample_count >= 5:  # Save only first 5 samples
@@ -604,9 +654,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 
                 sample_count += 1
                 if sample_count == 1:
-                    print(f"    ?? Saving to: {img_dir}")
+                    print(f"     Saving to: {img_dir}")
             
-            print(f"  ? Saved {sample_count} sample images")
+            print(f"   Saved {sample_count} sample images")
 
     # -------------------------------
     # Final Evaluation and Comparison
@@ -617,13 +667,13 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         print("="*80)
         
         # Final model evaluation
-        print("?? Performing final comprehensive evaluation...")
+        print(" Performing final comprehensive evaluation...")
         final_psnr, final_ssim = evaluate_model_metrics(model, test_loader, border=border)
         final_inference_time = measure_inference_time(model.netG)
         final_params, _ = count_parameters(model.netG)
         final_flops = count_flops(model.netG)
         final_sparsity = util.compute_sparsity(model.netG)
-        print("? Final evaluation completed")
+        print(" Final evaluation completed")
         
         results['after_pruning'] = {
             'psnr': final_psnr,
@@ -640,60 +690,60 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         
         # PSNR comparison
         psnr_drop = original_psnr - final_psnr
-        print(f"{'PSNR (dB)':<20} {original_psnr:<15.4f} {final_psnr:<15.4f} {-psnr_drop:<15.4f} {'?' if psnr_drop <= 0.2 else '?'}")
+        print(f"{'PSNR (dB)':<20} {original_psnr:<15.4f} {final_psnr:<15.4f} {-psnr_drop:<15.4f} {'' if psnr_drop <= 0.2 else ''}")
         
         # SSIM comparison
         ssim_drop = original_ssim - final_ssim
-        print(f"{'SSIM':<20} {original_ssim:<15.4f} {final_ssim:<15.4f} {-ssim_drop:<15.4f} {'?' if ssim_drop <= 0.01 else '?'}")
+        print(f"{'SSIM':<20} {original_ssim:<15.4f} {final_ssim:<15.4f} {-ssim_drop:<15.4f} {'' if ssim_drop <= 0.01 else ''}")
         
         # Parameters comparison
         param_reduction = (original_params - final_params) / original_params * 100
-        print(f"{'Parameters':<20} {original_params:<15,} {final_params:<15,} {-param_reduction:<14.1f}% {'?' if param_reduction > 0 else '?'}")
+        print(f"{'Parameters':<20} {original_params:<15,} {final_params:<15,} {-param_reduction:<14.1f}% {'' if param_reduction > 0 else ''}")
         
         # FLOPs comparison
         if original_flops and final_flops:
             flop_reduction = (original_flops - final_flops) / original_flops * 100
             flop_orig_str = f"{original_flops/1e9:.2f}G" if original_flops > 1e9 else f"{original_flops/1e6:.1f}M"
             flop_final_str = f"{final_flops/1e9:.2f}G" if final_flops > 1e9 else f"{final_flops/1e6:.1f}M"
-            print(f"{'FLOPs':<20} {flop_orig_str:<15} {flop_final_str:<15} {-flop_reduction:<14.1f}% {'?' if flop_reduction > 0 else '?'}")
+            print(f"{'FLOPs':<20} {flop_orig_str:<15} {flop_final_str:<15} {-flop_reduction:<14.1f}% {'' if flop_reduction > 0 else ''}")
         
         # Inference time comparison
         speed_up = original_inference_time / final_inference_time if final_inference_time > 0 else 1.0
-        print(f"{'Inference Time (s)':<20} {original_inference_time:<15.4f} {final_inference_time:<15.4f} {speed_up:<14.2f}x {'?' if speed_up > 1.0 else '?'}")
+        print(f"{'Inference Time (s)':<20} {original_inference_time:<15.4f} {final_inference_time:<15.4f} {speed_up:<14.2f}x {'' if speed_up > 1.0 else ''}")
         
         # Sparsity comparison
         sparsity_increase = final_sparsity - results['before_pruning']['sparsity']
-        print(f"{'Sparsity (%)':<20} {results['before_pruning']['sparsity']*100:<14.1f}% {final_sparsity*100:<14.1f}% {sparsity_increase*100:<14.1f}% {'?' if sparsity_increase > 0 else '?'}")
+        print(f"{'Sparsity (%)':<20} {results['before_pruning']['sparsity']*100:<14.1f}% {final_sparsity*100:<14.1f}% {sparsity_increase*100:<14.1f}% {'' if sparsity_increase > 0 else ''}")
         
         print("\n" + "="*80)
         
         # Summary
         success_criteria = []
         if psnr_drop <= 0.2:
-            success_criteria.append("? PSNR drop ? 0.2 dB")
+            success_criteria.append(" PSNR drop  0.2 dB")
         else:
-            success_criteria.append("? PSNR drop > 0.2 dB")
+            success_criteria.append(" PSNR drop > 0.2 dB")
             
         if param_reduction > 0:
-            success_criteria.append(f"? {param_reduction:.1f}% parameter reduction")
+            success_criteria.append(f" {param_reduction:.1f}% parameter reduction")
         else:
-            success_criteria.append("? No parameter reduction")
+            success_criteria.append(" No parameter reduction")
             
         if speed_up > 1.0:
-            success_criteria.append(f"? {speed_up:.2f}x speed improvement")
+            success_criteria.append(f" {speed_up:.2f}x speed improvement")
         else:
-            success_criteria.append("? No speed improvement")
+            success_criteria.append(" No speed improvement")
         
         print("PRUNING SUCCESS CRITERIA:")
         for criterion in success_criteria:
             print(f"  {criterion}")
         
         # Save results to JSON
-        print("\n?? Saving detailed results...")
+        print("\n Saving detailed results...")
         results_file = os.path.join(opt['path']['log'], 'pruning_results.json')
         with open(results_file, 'w') as f:
             json.dump(results, f, indent=2)
-        print(f"? Detailed results saved to: {results_file}")
+        print(f" Detailed results saved to: {results_file}")
         
         print_model_summary(model.netG, "Final Pruned Model")
 
@@ -701,10 +751,10 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # Save model
     # -------------------------------
     if opt['rank'] == 0:
-        print('\n?? Saving the final pruned model...')
+        print('\n Saving the final pruned model...')
         
         # Remove pruning masks to make the pruning permanent
-        print("?? Making pruning permanent by removing masks...")
+        print(" Making pruning permanent by removing masks...")
         modules_to_remove = []
         for name, module in model.named_modules():
             if hasattr(module, 'weight_orig'):
@@ -712,20 +762,20 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         
         mask_count = 0
         for name, module in modules_to_remove:
-            print(f"  ???  Removing pruning mask from: {name}")
+            print(f"    Removing pruning mask from: {name}")
             prune.remove(module, 'weight')
             mask_count += 1
 
         if mask_count > 0:
-            print(f"? Removed {mask_count} pruning masks")
+            print(f" Removed {mask_count} pruning masks")
         else:
-            print("??  No pruning masks found to remove")
+            print("  No pruning masks found to remove")
 
-        print("?? Saving model checkpoint...")
+        print(" Saving model checkpoint...")
         model.save(0)
-        print("?? Final pruned model saved successfully!")
+        print(" Final pruned model saved successfully!")
         print("\n" + "="*60)
-        print("?? STRUCTURED PRUNING COMPLETED!")
+        print(" STRUCTURED PRUNING COMPLETED!")
         print("="*60)
 
 if __name__ == '__main__':
