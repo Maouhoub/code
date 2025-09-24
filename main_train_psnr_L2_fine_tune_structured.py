@@ -253,6 +253,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # Step--1 (prepare opt)
     # ----------------------------------------
     '''
+    
+    print("?? Starting SwinIR-Light Structured Pruning...")
+    print("=" * 60)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--opt', type=str, default=json_path, help='Path to option JSON file.')
@@ -261,30 +264,37 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     parser.add_argument('--dist', default=False)
 
     opt = option.parse(parser.parse_args().opt, is_train=True)
+    print(f"? Configuration loaded from: {parser.parse_args().opt}")
     opt['dist'] = parser.parse_args().dist
 
     # ----------------------------------------
     # distributed settings
     # ----------------------------------------
     if opt['dist']:
+        print("?? Initializing distributed training...")
         init_dist('pytorch')
     opt['rank'], opt['world_size'] = get_dist_info()
+    print(f"?? Process rank: {opt['rank']}, World size: {opt['world_size']}")
 
     if opt['rank'] == 0:
+        print("?? Creating output directories...")
         util.mkdirs((path for key, path in opt['path'].items() if 'pretrained' not in key))
+        print("? Output directories created")
 
     # ----------------------------------------
     # update opt
     # ----------------------------------------
     # -->-->-->-->-->-->-->-->-->-->-->-->-->-
+    print("?? Searching for existing checkpoints...")
     init_iter_G, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
     init_iter_E, init_path_E = option.find_last_checkpoint(opt['path']['models'], net_type='E')
     opt['path']['pretrained_netG'] = init_path_G
     opt['path']['pretrained_netE'] = init_path_E
     init_iter_optimizerG, init_path_optimizerG = option.find_last_checkpoint(opt['path']['models'], net_type='optimizerG')
-    print("iterations : ", init_iter_optimizerG, init_path_optimizerG)
+    print(f"?? Found optimizer iterations: {init_iter_optimizerG}, path: {init_path_optimizerG}")
     opt['path']['pretrained_optimizerG'] = init_path_optimizerG
     current_step = max(init_iter_G, init_iter_E, init_iter_optimizerG)
+    print(f"?? Starting from step: {current_step}")
 
     border = opt['scale']
     # --<--<--<--<--<--<--<--<--<--<--<--<--<-
@@ -310,14 +320,16 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     # seed
     # ----------------------------------------
+    print("?? Setting up random seeds...")
     seed = opt['train']['manual_seed']
     if seed is None:
         seed = random.randint(1, 10000)
-    print('Random seed: {}'.format(seed))
+    print('?? Random seed: {}'.format(seed))
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    print("? Random seeds set for reproducibility")
 
     '''
     # ----------------------------------------
@@ -325,18 +337,27 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     '''
 
+    print("\n?? Creating datasets and dataloaders...")
+    print("-" * 40)
+    
     # ----------------------------------------
     # 1) create_dataset
     # 2) create_dataloader for train and test
     # ----------------------------------------
     for phase, dataset_opt in opt['datasets'].items():
+        print(f"?? Setting up {phase} dataset...")
         if phase == 'train':
+            print(f"  ?? Loading training dataset from: {dataset_opt.get('dataroot_H', 'N/A')}")
             train_set = define_Dataset(dataset_opt)
+            original_size = len(train_set)
             # Randomly select 150 images
-            train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), min(150, len(train_set))))
+            subset_size = min(150, len(train_set))
+            train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), subset_size))
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
-                print('Number of train images for fine-tuning: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
+                print(f'  ?? Original dataset size: {original_size:,d}')
+                print(f'  ??  Subset for fine-tuning: {len(train_set):,d}')
+                print(f'  ?? Training iterations per epoch: {train_size:,d}')
             if opt['dist']:
                 train_sampler = DistributedSampler(train_set, shuffle=dataset_opt['dataloader_shuffle'], drop_last=True, seed=seed)
                 train_loader = DataLoader(train_set,
@@ -355,12 +376,16 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                                           pin_memory=True)
 
         elif phase == 'test':
+            print(f"  ?? Loading test dataset from: {dataset_opt.get('dataroot_H', 'N/A')}")
             test_set = define_Dataset(dataset_opt)
             test_loader = DataLoader(test_set, batch_size=1,
                                      shuffle=False, num_workers=1,
                                      drop_last=False, pin_memory=True)
+            print(f"  ?? Test dataset size: {len(test_set):,d}")
         else:
             raise NotImplementedError("Phase [%s] is not recognized." % phase)
+    
+    print("? All datasets and dataloaders created successfully")
 
     '''
     # ----------------------------------------
@@ -368,8 +393,12 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # ----------------------------------------
     '''
 
+    print("\n???  Initializing model...")
+    print("-" * 40)
     model = define_Model(opt)
+    print("? Model architecture loaded")
     model.init_train()
+    print("? Model training initialized")
 
     # Results tracking
     results = {
@@ -386,9 +415,14 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     print_model_summary(model.netG, "Original Model")
     
     # Evaluate original model performance
+    print("?? Evaluating original model performance...")
+    print("  ?? Measuring PSNR/SSIM on test set...")
     original_psnr, original_ssim = evaluate_model_metrics(model, test_loader, border=border)
+    print("  ??  Measuring inference time...")
     original_inference_time = measure_inference_time(model.netG)
+    print("  ?? Counting parameters...")
     original_params, _ = count_parameters(model.netG)
+    print("  ?? Calculating FLOPs...")
     original_flops = count_flops(model.netG)
     
     results['before_pruning'] = {
@@ -427,16 +461,19 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         
         # Apply structured pruning using Torch-Pruning or fallback
         if TORCH_PRUNING_AVAILABLE:
-            print("Using Torch-Pruning for structured channel pruning...")
+            print("?? Using Torch-Pruning for structured channel pruning...")
             model.netG = apply_structured_pruning_torch_pruning(model.netG, pruning_ratio)
         else:
-            print("Using basic structured pruning...")
+            print("??  Using basic structured pruning (Torch-Pruning not available)...")
             model.netG = apply_basic_structured_pruning(model.netG, pruning_ratio)
         
+        print("? Pruning applied successfully")
         print_model_summary(model.netG, f"Model after pruning iteration {pruning_iteration}")
         
         # Re-initialize optimizer after pruning
+        print("?? Re-initializing optimizer after pruning...")
         model.init_train()
+        print("? Optimizer re-initialized")
 
         '''
         # ----------------------------------------
@@ -445,16 +482,21 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         '''
         e_pochs = opt['fine_tune']['L2_ft_epochs']
 
-        print("Fine-tuning epochs: ", e_pochs)
+        print(f"\n?? Starting fine-tuning for {e_pochs} epochs...")
+        print("-" * 30)
 
         for epoch in range(e_pochs):
-            print("epoch : ", epoch)
+            print(f"?? Epoch {epoch + 1}/{e_pochs}")
+            epoch_start_time = time.time()
             if opt['dist']:
                 train_sampler.set_epoch(epoch + seed)
 
+            batch_count = 0
             for i, train_data in enumerate(train_loader):
-
-                print("Current step: ", current_step)
+                batch_count += 1
+                if batch_count % 10 == 0 or batch_count == 1:
+                    print(f"  ?? Processing batch {batch_count}/{len(train_loader)} (step: {current_step})")
+                
                 current_step += 1
 
                 # -------------------------------
@@ -476,8 +518,9 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             # Training information
             # -------------------------------
             if opt['rank'] == 0:
+                epoch_time = time.time() - epoch_start_time
                 logs = model.current_log()  # such as loss
-                message = ''
+                message = f'  ?? Epoch {epoch + 1} completed in {epoch_time:.2f}s - '
                 for k, v in logs.items():  # merge log information into message
                     message += '{:s}: {:.3e} '.format(k, v)
                 print(message)
@@ -491,10 +534,15 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             print("-"*50)
             
             # Comprehensive evaluation
+            print("  ?? Evaluating pruned model performance...")
             current_psnr, current_ssim = evaluate_model_metrics(model, test_loader, border=border)
+            print("  ??  Measuring inference time...")
             current_inference_time = measure_inference_time(model.netG)
+            print("  ?? Counting parameters...")
             current_params, _ = count_parameters(model.netG)
+            print("  ?? Calculating FLOPs...")
             current_flops = count_flops(model.netG)
+            print("  ?? Computing sparsity...")
             current_sparsity = util.compute_sparsity(model.netG)
             
             # Store iteration results
@@ -532,6 +580,7 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 print(f"FLOP reduction: {flop_reduction:.1f}%")
             
             # Save some sample images from this iteration
+            print("  ???  Saving sample images...")
             sample_count = 0
             for test_data in test_loader:
                 if sample_count >= 5:  # Save only first 5 samples
@@ -554,6 +603,10 @@ def main(json_path='options/train_msrresnet_psnr.json'):
                 util.imsave(E_img, save_img_path)
                 
                 sample_count += 1
+                if sample_count == 1:
+                    print(f"    ?? Saving to: {img_dir}")
+            
+            print(f"  ? Saved {sample_count} sample images")
 
     # -------------------------------
     # Final Evaluation and Comparison
@@ -564,11 +617,13 @@ def main(json_path='options/train_msrresnet_psnr.json'):
         print("="*80)
         
         # Final model evaluation
+        print("?? Performing final comprehensive evaluation...")
         final_psnr, final_ssim = evaluate_model_metrics(model, test_loader, border=border)
         final_inference_time = measure_inference_time(model.netG)
         final_params, _ = count_parameters(model.netG)
         final_flops = count_flops(model.netG)
         final_sparsity = util.compute_sparsity(model.netG)
+        print("? Final evaluation completed")
         
         results['after_pruning'] = {
             'psnr': final_psnr,
@@ -634,10 +689,11 @@ def main(json_path='options/train_msrresnet_psnr.json'):
             print(f"  {criterion}")
         
         # Save results to JSON
+        print("\n?? Saving detailed results...")
         results_file = os.path.join(opt['path']['log'], 'pruning_results.json')
         with open(results_file, 'w') as f:
             json.dump(results, f, indent=2)
-        print(f"\nDetailed results saved to: {results_file}")
+        print(f"? Detailed results saved to: {results_file}")
         
         print_model_summary(model.netG, "Final Pruned Model")
 
@@ -645,20 +701,32 @@ def main(json_path='options/train_msrresnet_psnr.json'):
     # Save model
     # -------------------------------
     if opt['rank'] == 0:
-        print('\nSaving the final pruned model...')
+        print('\n?? Saving the final pruned model...')
         
         # Remove pruning masks to make the pruning permanent
+        print("?? Making pruning permanent by removing masks...")
         modules_to_remove = []
         for name, module in model.named_modules():
             if hasattr(module, 'weight_orig'):
                 modules_to_remove.append((name, module))
         
+        mask_count = 0
         for name, module in modules_to_remove:
-            print(f"Making pruning permanent for: {name}")
+            print(f"  ???  Removing pruning mask from: {name}")
             prune.remove(module, 'weight')
+            mask_count += 1
 
+        if mask_count > 0:
+            print(f"? Removed {mask_count} pruning masks")
+        else:
+            print("??  No pruning masks found to remove")
+
+        print("?? Saving model checkpoint...")
         model.save(0)
-        print("Final pruned model saved successfully!")
+        print("?? Final pruned model saved successfully!")
+        print("\n" + "="*60)
+        print("?? STRUCTURED PRUNING COMPLETED!")
+        print("="*60)
 
 if __name__ == '__main__':
     main()
