@@ -212,6 +212,9 @@ class ModelPlain(ModelBase):
             self.netG_forward()
         self.netG.train()
 
+    def eval(self):
+        self.netG.eval()
+
     # ----------------------------------------
     # test / inference x8
     # ----------------------------------------
