@@ -479,9 +479,9 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
             idx += 1
             
             # Limit evaluation to max_images for faster research
-            if idx > max_images:
-                print(f"  (Limiting evaluation to {max_images} images for speed)")
-                break
+            ##if idx > max_images:
+              ##  print(f"  (Limiting evaluation to {max_images} images for speed)")
+                #break
                 
             image_name_ext = os.path.basename(test_data['L_path'][0])
             img_name, ext = os.path.splitext(image_name_ext)
@@ -713,7 +713,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     total_pruning_ratio = 0.5  # Target 50% overall pruning
     pruning_steps = 5  # Gradual pruning in 5 steps
     pruning_ratio_per_step = total_pruning_ratio / pruning_steps
-    target_psnr_threshold = baseline_psnr - 0.3  # Stop if PSNR drops below this
+    target_psnr_threshold = baseline_psnr - 0.2  # Stop if PSNR drops below this
     
     print(f"Target total pruning ratio: {total_pruning_ratio:.1%}")
     print(f"Pruning steps: {pruning_steps}")
