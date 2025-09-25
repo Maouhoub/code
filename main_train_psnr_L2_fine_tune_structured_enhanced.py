@@ -145,6 +145,49 @@ def count_parameters(model):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return total, trainable
 
+def validate_pixelshuffle_constraints(model, scale_factor=2):
+    """
+    Validate that all layers feeding into PixelShuffle have correct channel counts.
+    For PixelShuffle with scale_factor, input channels must be divisible by scale_factor^2.
+    """
+    print(f"Validating PixelShuffle constraints for scale factor {scale_factor}...")
+    required_divisor = scale_factor ** 2
+    issues_found = []
+    
+    for name, module in model.named_modules():
+        if isinstance(module, nn.PixelShuffle):
+            # Find the layer that feeds into this PixelShuffle
+            parent_name = '.'.join(name.split('.')[:-1])
+            if parent_name:
+                try:
+                    parent_module = model
+                    for part in parent_name.split('.'):
+                        parent_module = getattr(parent_module, part)
+                    
+                    # Check if parent is Sequential (Upsample/UpsampleOneStep)
+                    if isinstance(parent_module, nn.Sequential):
+                        # Find the Conv2d that feeds into this PixelShuffle
+                        conv_layers = [m for m in parent_module.children() if isinstance(m, nn.Conv2d)]
+                        if conv_layers:
+                            conv_layer = conv_layers[-1]  # Last conv before PixelShuffle
+                            out_channels = conv_layer.out_channels
+                            
+                            if out_channels % required_divisor != 0:
+                                issues_found.append(f"Layer {name}: Conv2d output channels ({out_channels}) not divisible by {required_divisor}")
+                            else:
+                                print(f"? {name}: Conv2d output channels ({out_channels}) properly divisible by {required_divisor}")
+                except Exception as e:
+                    print(f"Warning: Could not validate {name}: {e}")
+    
+    if issues_found:
+        print("? PixelShuffle constraint violations found:")
+        for issue in issues_found:
+            print(f"  - {issue}")
+        return False
+    else:
+        print("? All PixelShuffle constraints satisfied")
+        return True
+
 def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
     """
     Apply structured channel pruning using Torch-Pruning library.
@@ -164,7 +207,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
         # Define importance metric (L1 norm for channels)
         imp = tp.importance.MagnitudeImportance(p=1)  # L1 norm
         
-        # Get SwinIR-specific layers to ignore (attention-related parameters)
+        # Get SwinIR-specific layers to ignore (attention-related parameters + PixelShuffle protection)
         ignored_layers = []
         unwrapped_parameters = []
         
@@ -172,6 +215,36 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
             # Skip attention layers that cause issues
             if 'attn' in name or 'relative_position' in name:
                 ignored_layers.append(module)
+            
+            # PixelShuffle protection: Exclude layers that feed into PixelShuffle
+            # 1. Exclude conv_last (final reconstruction layer in pixelshuffle mode)
+            if 'conv_last' in name:
+                ignored_layers.append(module)
+                print(f"Excluding PixelShuffle-feeding layer: {name}")
+            
+            # 2. Exclude conv_before_upsample (feeds into upsample module in pixelshuffle mode)
+            if 'conv_before_upsample' in name:
+                ignored_layers.append(module)
+                print(f"Excluding PixelShuffle-feeding layer: {name}")
+            
+            # 3. Exclude UpsampleOneStep and Upsample modules (contain PixelShuffle)
+            if hasattr(module, '__class__'):
+                class_name = module.__class__.__name__
+                if class_name in ['UpsampleOneStep', 'Upsample']:
+                    ignored_layers.append(module)
+                    print(f"Excluding upsampling module: {name} ({class_name})")
+                
+                # Also check for Sequential modules that contain PixelShuffle
+                if class_name == 'Sequential' and any(isinstance(child, nn.PixelShuffle) for child in module.children()):
+                    ignored_layers.append(module)
+                    print(f"Excluding Sequential with PixelShuffle: {name}")
+            
+            # 4. Additional protection: exclude Conv2d layers within upsampling modules
+            if isinstance(module, nn.Conv2d):
+                # Check if this conv is part of an upsampling path
+                if any(upsample_key in name for upsample_key in ['upsample', 'conv_last', 'conv_before_upsample']):
+                    ignored_layers.append(module)
+                    print(f"Excluding Conv2d in upsampling path: {name}")
             
         for name, param in model.named_parameters():
             # Skip problematic parameters
@@ -600,6 +673,11 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         # Update model
         if hasattr(model, 'netG'):
             model.netG = network
+        
+        # Validate PixelShuffle constraints after pruning
+        scale_factor = opt.get('scale', 2)  # Default to 2x upscaling
+        if not validate_pixelshuffle_constraints(network, scale_factor):
+            print("??  PixelShuffle constraints violated! Model may not work correctly.")
         
         print("? Structured pruning applied successfully")
         
