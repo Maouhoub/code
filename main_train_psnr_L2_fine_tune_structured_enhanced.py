@@ -209,13 +209,13 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
 
         # Identify modules for structured pruning while protecting critical components
         unwrapped_parameters = []
-    prunable_modules = set()
-    mlp_fc1_names = []
-    conv_prunable_names = []
-    fc2_names = []
-    ignored_modules = set()
-    pixelshuffle_container_names = []
-    out_channel_groups = {}
+        prunable_modules = set()
+        mlp_fc1_names = []
+        conv_prunable_names = []
+        fc2_names = []
+        ignored_modules = set()
+        pixelshuffle_container_names = []
+        out_channel_groups = {}
 
         embed_dim = getattr(model, 'embed_dim', None)
         scale_factor = getattr(model, 'upscale', 2)
