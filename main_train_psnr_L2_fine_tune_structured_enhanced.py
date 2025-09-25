@@ -312,7 +312,7 @@ def evaluate_model(model, test_loader, opt, current_step, suffix=""):
     return avg_psnr, avg_ssim, avg_inference_time
 
 
-def main(json_path='options/train_swinir_sr_structured_pruning.json'):
+def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_pruning.json'):
 
     '''
     # ----------------------------------------
