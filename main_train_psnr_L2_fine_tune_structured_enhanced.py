@@ -463,7 +463,6 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
     Returns PSNR, SSIM, and average inference time.
     Limited to max_images for faster evaluation during research.
     """
-    print(f"\n?? Evaluating model ({suffix}) - Limited to {max_images} images for speed...")
     
     avg_psnr = 0.0
     avg_ssim = 0.0
