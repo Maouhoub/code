@@ -209,14 +209,13 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
 
         # Identify modules for structured pruning while protecting critical components
         unwrapped_parameters = []
-        prunable_modules = set()
-        mlp_fc1_names = []
-        conv_prunable_names = []
-        fc2_modules = set()
-        fc2_names = []
-        ignored_modules = set()
-        pixelshuffle_container_names = []
-        out_channel_groups = {}
+    prunable_modules = set()
+    mlp_fc1_names = []
+    conv_prunable_names = []
+    fc2_names = []
+    ignored_modules = set()
+    pixelshuffle_container_names = []
+    out_channel_groups = {}
 
         embed_dim = getattr(model, 'embed_dim', None)
         scale_factor = getattr(model, 'upscale', 2)
@@ -224,24 +223,6 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
             pixelshuffle_group_size = int(scale_factor) ** 2
         except Exception:
             pixelshuffle_group_size = 4  # default protection for 2x upscale
-
-        class LinearInputPruner(tp.BasePruningFunc):
-            """Custom pruner restricting decoder MLP layers to input-channel pruning."""
-
-            TARGET_MODULES = nn.Linear
-
-            def prune_out_channels(self, layer, idxs):
-                return layer  # preserve embedding dimension alignment
-
-            def prune_in_channels(self, layer, idxs):
-                tp.prune_linear_in_channels(layer, idxs)
-                return layer
-
-            def get_out_channels(self, layer):
-                return None  # keep from becoming a pruning root
-
-            def get_in_channels(self, layer):
-                return layer.in_features
 
         for name, module in model.named_modules():
             lower_name = name.lower()
@@ -271,7 +252,6 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
                 elif 'mlp.fc2' in lower_name:
-                    fc2_modules.add(module)
                     fc2_names.append(name)
                 else:
                     ignored_modules.add(module)
@@ -312,8 +292,6 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
 
         ignored_layers = [m for m in ignored_modules if m not in prunable_modules]
 
-        customized_pruners = {module: LinearInputPruner() for module in fc2_modules}
-
         if conv_prunable_names:
             print(f"Prunable Conv2d layers (output channels): {conv_prunable_names}")
         else:
@@ -325,7 +303,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
             print("No MLP fc1 layers detected for pruning.")
 
         if fc2_names:
-            print(f"Protected MLP fc2 layers (input-only pruning): first={fc2_names[0]}, total={len(fc2_names)}")
+            print(f"Protected MLP fc2 layers (will receive input pruning via dependencies): first={fc2_names[0]}, total={len(fc2_names)}")
 
         for container_name in pixelshuffle_container_names:
             print(f"Excluding PixelShuffle container: {container_name}")
@@ -347,7 +325,6 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
             root_module_types=[nn.Conv2d, nn.Linear],
             ignored_layers=ignored_layers,
             unwrapped_parameters=unwrapped_parameters,
-            customized_pruners=customized_pruners if customized_pruners else None,
             out_channel_groups=out_channel_groups if out_channel_groups else None,
         )
         
