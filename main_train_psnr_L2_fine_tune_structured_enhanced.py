@@ -206,64 +206,159 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
         
         # Define importance metric (L1 norm for channels)
         imp = tp.importance.MagnitudeImportance(p=1)  # L1 norm
-        
-        # Get SwinIR-specific layers to ignore (attention-related parameters + PixelShuffle protection)
-        ignored_layers = []
+
+        # Identify modules for structured pruning while protecting critical components
         unwrapped_parameters = []
-        
+        prunable_modules = set()
+        mlp_fc1_names = []
+        conv_prunable_names = []
+        fc2_modules = set()
+        fc2_names = []
+        ignored_modules = set()
+        pixelshuffle_container_names = []
+        out_channel_groups = {}
+
+        embed_dim = getattr(model, 'embed_dim', None)
+        scale_factor = getattr(model, 'upscale', 2)
+        try:
+            pixelshuffle_group_size = int(scale_factor) ** 2
+        except Exception:
+            pixelshuffle_group_size = 4  # default protection for 2x upscale
+
+        class LinearInputPruner(tp.BasePruningFunc):
+            """Custom pruner restricting decoder MLP layers to input-channel pruning."""
+
+            TARGET_MODULES = nn.Linear
+
+            def prune_out_channels(self, layer, idxs):
+                return layer  # preserve embedding dimension alignment
+
+            def prune_in_channels(self, layer, idxs):
+                tp.prune_linear_in_channels(layer, idxs)
+                return layer
+
+            def get_out_channels(self, layer):
+                return None  # keep from becoming a pruning root
+
+            def get_in_channels(self, layer):
+                return layer.in_features
+
         for name, module in model.named_modules():
-            # Skip attention layers that cause issues
-            if 'attn' in name or 'relative_position' in name:
-                ignored_layers.append(module)
-            
-            # PixelShuffle protection: Exclude layers that feed into PixelShuffle
-            # 1. Exclude conv_last (final reconstruction layer in pixelshuffle mode)
-            if 'conv_last' in name:
-                ignored_layers.append(module)
-                print(f"Excluding PixelShuffle-feeding layer: {name}")
-            
-            # 2. Exclude conv_before_upsample (feeds into upsample module in pixelshuffle mode)
-            if 'conv_before_upsample' in name:
-                ignored_layers.append(module)
-                print(f"Excluding PixelShuffle-feeding layer: {name}")
-            
-            # 3. Exclude UpsampleOneStep and Upsample modules (contain PixelShuffle)
-            if hasattr(module, '__class__'):
-                class_name = module.__class__.__name__
-                if class_name in ['UpsampleOneStep', 'Upsample']:
-                    ignored_layers.append(module)
-                    print(f"Excluding upsampling module: {name} ({class_name})")
-                
-                # Also check for Sequential modules that contain PixelShuffle
-                if class_name == 'Sequential' and any(isinstance(child, nn.PixelShuffle) for child in module.children()):
-                    ignored_layers.append(module)
-                    print(f"Excluding Sequential with PixelShuffle: {name}")
-            
-            # 4. Additional protection: exclude Conv2d layers within upsampling modules
+            lower_name = name.lower()
+
+            if 'attn' in lower_name or 'relative_position' in lower_name:
+                ignored_modules.add(module)
+                continue
+
+            if isinstance(module, nn.PixelShuffle):
+                ignored_modules.add(module)
+                pixelshuffle_container_names.append(name)
+                continue
+
+            class_name = module.__class__.__name__
+            if class_name in ['Upsample', 'UpsampleOneStep']:
+                ignored_modules.add(module)
+                pixelshuffle_container_names.append(name)
+                continue
+
+            if isinstance(module, nn.Sequential) and any(isinstance(child, nn.PixelShuffle) for child in module.children()):
+                ignored_modules.add(module)
+                pixelshuffle_container_names.append(name)
+                continue
+
+            if isinstance(module, nn.Linear):
+                if 'mlp.fc1' in lower_name:
+                    prunable_modules.add(module)
+                    mlp_fc1_names.append(name)
+                elif 'mlp.fc2' in lower_name:
+                    fc2_modules.add(module)
+                    fc2_names.append(name)
+                else:
+                    ignored_modules.add(module)
+                continue
+
             if isinstance(module, nn.Conv2d):
-                # Check if this conv is part of an upsampling path
-                if any(upsample_key in name for upsample_key in ['upsample', 'conv_last', 'conv_before_upsample']):
-                    ignored_layers.append(module)
-                    print(f"Excluding Conv2d in upsampling path: {name}")
-            
+                if 'conv_last' in lower_name or module.out_channels == 3:
+                    ignored_modules.add(module)
+                    continue
+
+                if 'conv_first' in lower_name:
+                    prunable_modules.add(module)
+                    conv_prunable_names.append(name)
+                    continue
+
+                if 'conv_after_body' in lower_name:
+                    prunable_modules.add(module)
+                    conv_prunable_names.append(name)
+                    continue
+
+                if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
+                    prunable_modules.add(module)
+                    conv_prunable_names.append(name)
+                    out_channel_groups[module] = max(pixelshuffle_group_size, 1)
+                    continue
+
+                if any(keyword in lower_name for keyword in ['patch_embed', 'patch_unembed']):
+                    ignored_modules.add(module)
+                    continue
+
+                if embed_dim is not None and module.out_channels == embed_dim:
+                    prunable_modules.add(module)
+                    conv_prunable_names.append(name)
+                    continue
+
+                ignored_modules.add(module)
+                continue
+
+        ignored_layers = [m for m in ignored_modules if m not in prunable_modules]
+
+        customized_pruners = {module: LinearInputPruner() for module in fc2_modules}
+
+        if conv_prunable_names:
+            print(f"Prunable Conv2d layers (output channels): {conv_prunable_names}")
+        else:
+            print("No Conv2d layers matched the pruning criteria.")
+
+        if mlp_fc1_names:
+            print(f"Prunable MLP fc1 layers (output channels): first={mlp_fc1_names[0]}, total={len(mlp_fc1_names)}")
+        else:
+            print("No MLP fc1 layers detected for pruning.")
+
+        if fc2_names:
+            print(f"Protected MLP fc2 layers (input-only pruning): first={fc2_names[0]}, total={len(fc2_names)}")
+
+        for container_name in pixelshuffle_container_names:
+            print(f"Excluding PixelShuffle container: {container_name}")
+
         for name, param in model.named_parameters():
-            # Skip problematic parameters
             if 'relative_position_bias_table' in name or 'attn_mask' in name:
                 unwrapped_parameters.append((name, param))
-        
+
+        if not prunable_modules:
+            print("No eligible modules found for Torch-Pruning; returning model unchanged.")
+            return model
+
         # Initialize pruner with SwinIR-specific settings
         pruner = tp.pruner.MagnitudePruner(
-            model, 
-            example_inputs, 
+            model,
+            example_inputs,
             importance=imp,
             pruning_ratio=pruning_ratio,
-            root_module_types=[nn.Conv2d],  # Only prune Conv2d layers for SwinIR
+            root_module_types=[nn.Conv2d, nn.Linear],
             ignored_layers=ignored_layers,
             unwrapped_parameters=unwrapped_parameters,
+            customized_pruners=customized_pruners if customized_pruners else None,
+            out_channel_groups=out_channel_groups if out_channel_groups else None,
         )
         
         # Apply pruning
         pruner.step()
+
+        # Validate PixelShuffle divisibility after pruning
+        try:
+            validate_pixelshuffle_constraints(model)
+        except Exception as pixelshuffle_error:
+            print(f"Warning: PixelShuffle constraint check failed post-pruning: {pixelshuffle_error}")
         
         return model
     except Exception as e:
