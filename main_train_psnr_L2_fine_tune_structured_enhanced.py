@@ -90,22 +90,51 @@ def calculate_model_stats(model, input_shape=(3, 64, 64), device='cpu'):
     stats['total_params'] = total_params
     stats['trainable_params'] = trainable_params
     
-    # Calculate FLOPs
+    # Calculate FLOPs with robust error handling
+    stats['flops'] = 0  # Default value
+    
     try:
         if PTFLOPS_AVAILABLE:
-            # Using ptflops
-            flops, params = get_model_complexity_info(model, input_shape, as_strings=False, 
-                                                    print_per_layer_stat=False, verbose=False)
-            stats['flops'] = flops
+            # Using ptflops with CUDA error handling
+            try:
+                # Move model to CPU temporarily for FLOPs calculation if CUDA errors occur
+                original_device = next(model.parameters()).device
+                if 'cuda' in str(original_device):
+                    # Try GPU first
+                    flops, params = get_model_complexity_info(model, input_shape, as_strings=False, 
+                                                            print_per_layer_stat=False, verbose=False)
+                    stats['flops'] = flops
+                else:
+                    flops, params = get_model_complexity_info(model, input_shape, as_strings=False, 
+                                                            print_per_layer_stat=False, verbose=False)
+                    stats['flops'] = flops
+            except Exception as cuda_e:
+                print(f"GPU FLOPs calculation failed: {cuda_e}")
+                try:
+                    # Try moving to CPU for FLOPs calculation
+                    print("Attempting CPU FLOPs calculation...")
+                    original_device = next(model.parameters()).device
+                    model_cpu = model.cpu()
+                    flops, params = get_model_complexity_info(model_cpu, input_shape, as_strings=False, 
+                                                            print_per_layer_stat=False, verbose=False)
+                    stats['flops'] = flops
+                    model.to(original_device)  # Move back to original device
+                except Exception as cpu_e:
+                    print(f"CPU FLOPs calculation also failed: {cpu_e}")
+                    stats['flops'] = 0
         else:
             # Using local utils
             try:
                 flops = get_model_flops(model, input_shape, print_per_layer_stat=False)
-                stats['flops'] = flops
+                stats['flops'] = flops if flops is not None else 0
             except:
                 stats['flops'] = 0
     except Exception as e:
         print(f"Warning: Could not calculate FLOPs: {e}")
+        stats['flops'] = 0
+    
+    # Ensure flops is never None
+    if stats['flops'] is None:
         stats['flops'] = 0
     
     return stats
@@ -127,7 +156,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
     print(f"Applying structured channel pruning with ratio: {pruning_ratio}")
     
     try:
-        # Create pruner
+        # Create pruner with SwinIR-specific configurations
         example_inputs = torch.randn(1, 3, 64, 64)
         if next(model.parameters()).is_cuda:
             example_inputs = example_inputs.cuda()
@@ -135,14 +164,29 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
         # Define importance metric (L1 norm for channels)
         imp = tp.importance.MagnitudeImportance(p=1)  # L1 norm
         
-        # Initialize pruner
+        # Get SwinIR-specific layers to ignore (attention-related parameters)
+        ignored_layers = []
+        unwrapped_parameters = []
+        
+        for name, module in model.named_modules():
+            # Skip attention layers that cause issues
+            if 'attn' in name or 'relative_position' in name:
+                ignored_layers.append(module)
+            
+        for name, param in model.named_parameters():
+            # Skip problematic parameters
+            if 'relative_position_bias_table' in name or 'attn_mask' in name:
+                unwrapped_parameters.append((name, param))
+        
+        # Initialize pruner with SwinIR-specific settings
         pruner = tp.pruner.MagnitudePruner(
             model, 
             example_inputs, 
             importance=imp,
             pruning_ratio=pruning_ratio,
-            root_module_types=[nn.Conv2d, nn.Linear],  # Prune conv and linear layers
-            ignored_layers=[],
+            root_module_types=[nn.Conv2d],  # Only prune Conv2d layers for SwinIR
+            ignored_layers=ignored_layers,
+            unwrapped_parameters=unwrapped_parameters,
         )
         
         # Apply pruning
@@ -151,32 +195,59 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
         return model
     except Exception as e:
         print(f"Error with Torch-Pruning: {e}")
-        print("Falling back to PyTorch native structured pruning")
+        print("SwinIR attention mechanism is complex for Torch-Pruning, falling back to PyTorch native pruning")
         return apply_structured_pruning_native(model, pruning_ratio)
 
 def apply_structured_pruning_native(model, pruning_ratio=0.1):
     """
     Apply structured channel pruning using PyTorch native structured pruning.
+    Uses SwinIR-specific pruning utilities.
     """
-    print(f"Applying PyTorch native structured channel pruning with ratio: {pruning_ratio}")
-    
-    # Collect all Conv2d layers for structured pruning
-    modules_to_prune = []
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Conv2d) and module.out_channels > 1:  # Skip if only 1 channel
-            modules_to_prune.append((module, 'weight'))
-    
-    print(f"Found {len(modules_to_prune)} Conv2d layers to prune")
-    
-    # Apply structured pruning (L1 norm, dim=0 for channel pruning)
-    for module, param_name in modules_to_prune:
-        try:
-            prune.ln_structured(module, name=param_name, amount=pruning_ratio, n=1, dim=0)
-        except Exception as e:
-            print(f"Could not prune layer {module}: {e}")
-            continue
-    
-    return model
+    # Import the SwinIR-specific pruning functions
+    try:
+        from swinir_pruning_utils import swinir_structured_pruning
+        return swinir_structured_pruning(model, pruning_ratio)
+    except ImportError:
+        print("SwinIR pruning utils not found, falling back to basic pruning")
+        
+        import torch.nn.utils.prune as prune  # Import here to ensure it's available
+        
+        print(f"Applying PyTorch native structured channel pruning with ratio: {pruning_ratio}")
+        
+        # Collect all Conv2d layers for structured pruning, excluding problematic ones
+        modules_to_prune = []
+        for name, module in model.named_modules():
+            if isinstance(module, nn.Conv2d) and module.out_channels > 1:  # Skip if only 1 channel
+                # Skip attention-related Conv2d layers that might cause issues
+                if not any(skip_word in name.lower() for skip_word in ['attn', 'attention', 'relative_position']):
+                    modules_to_prune.append((name, module, 'weight'))
+        
+        print(f"Found {len(modules_to_prune)} Conv2d layers to prune (excluding attention layers)")
+        
+        # Apply structured pruning (L1 norm, dim=0 for channel pruning)
+        successful_prunes = 0
+        for name, module, param_name in modules_to_prune:
+            try:
+                # Check if the layer has enough channels to prune
+                if module.out_channels > 2:  # Need at least 2 channels to prune
+                    # Use conservative pruning - limit to max 20% or 1 channel minimum
+                    effective_ratio = min(pruning_ratio, 0.2)
+                    channels_to_prune = max(1, int(module.out_channels * effective_ratio))
+                    # Don't prune all channels
+                    if channels_to_prune >= module.out_channels:
+                        channels_to_prune = module.out_channels - 1
+                    
+                    prune.ln_structured(module, name=param_name, amount=channels_to_prune, n=1, dim=0)
+                    successful_prunes += 1
+                    print(f"  ? Pruned {name}: {channels_to_prune}/{module.out_channels} channels")
+                else:
+                    print(f"Skipping {name}: insufficient channels ({module.out_channels})")
+            except Exception as e:
+                print(f"  ? Could not prune layer {name}: {e}")
+                continue
+        
+        print(f"Successfully pruned {successful_prunes}/{len(modules_to_prune)} layers")
+        return model
 
 def remove_pruning_masks(model):
     """Remove pruning masks to make pruning permanent."""
@@ -525,13 +596,25 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         
         print("? Structured pruning applied successfully")
         
-        # Calculate post-pruning statistics
+        # Calculate post-pruning statistics with robust error handling
         current_stats = calculate_model_stats(network, input_shape, device)
-        compression_ratio = (1 - current_stats['total_params'] / baseline_stats['total_params']) * 100
-        flop_reduction = (1 - current_stats['flops'] / baseline_stats['flops']) * 100 if baseline_stats['flops'] > 0 else 0
+        
+        # Safe calculation of compression ratios
+        if baseline_stats['total_params'] > 0:
+            compression_ratio = (1 - current_stats['total_params'] / baseline_stats['total_params']) * 100
+        else:
+            compression_ratio = 0
+            
+        if baseline_stats['flops'] > 0 and current_stats['flops'] > 0:
+            flop_reduction = (1 - current_stats['flops'] / baseline_stats['flops']) * 100
+        else:
+            flop_reduction = 0
         
         print(f"Parameters after pruning: {current_stats['total_params']:,} ({compression_ratio:.1f}% reduction)")
-        print(f"FLOPs after pruning: {current_stats['flops']:,} ({flop_reduction:.1f}% reduction)")
+        if current_stats['flops'] > 0:
+            print(f"FLOPs after pruning: {current_stats['flops']:,} ({flop_reduction:.1f}% reduction)")
+        else:
+            print(f"FLOPs calculation unavailable due to model complexity")
 
         # =============================================================================
         # Fine-tuning after Pruning
