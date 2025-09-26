@@ -710,7 +710,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     
     # Pruning configuration
     total_pruning_ratio = 0.5  # Target 50% overall pruning
-    pruning_steps = 5  # Gradual pruning in 5 steps
+    pruning_steps = 8  # Gradual pruning in 5 steps
     pruning_ratio_per_step = total_pruning_ratio / pruning_steps
     target_psnr_threshold = baseline_psnr - 0.2  # Stop if PSNR drops below this
     
