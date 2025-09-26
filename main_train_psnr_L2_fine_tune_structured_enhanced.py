@@ -145,6 +145,22 @@ def count_parameters(model):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return total, trainable
 
+
+def get_layer_sensitivity(layer_name):
+    """Return a multiplicative sensitivity factor for pruning ratios based on layer name."""
+    lname = layer_name.lower()
+
+    # Highly sensitive layers
+    if any(keyword in lname for keyword in ['conv_first', 'conv_after_body']):
+        return 0.4  # prune much less aggressively
+
+    # Moderately sensitive layers (e.g., upsampling pipeline)
+    if any(keyword in lname for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
+        return 0.6
+
+    # Default sensitivity
+    return 1.0
+
 def validate_pixelshuffle_constraints(model, scale_factor=2):
     """
     Validate that all layers feeding into PixelShuffle have correct channel counts.
@@ -210,6 +226,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
         # Identify modules for structured pruning while protecting critical components
         unwrapped_parameters = []
         prunable_modules = set()
+        module_sensitivity = {}
         mlp_fc1_names = []
         conv_prunable_names = []
         fc2_names = []
@@ -251,6 +268,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
                 if 'mlp.fc1' in lower_name:
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                 elif 'mlp.fc2' in lower_name:
                     fc2_names.append(name)
                 else:
@@ -265,16 +283,19 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
                 if 'conv_first' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     continue
 
                 if 'conv_after_body' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     continue
 
                 if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     out_channel_groups[module] = max(pixelshuffle_group_size, 1)
                     continue
 
@@ -285,6 +306,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
                 if embed_dim is not None and module.out_channels == embed_dim:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     continue
 
                 ignored_modules.add(module)
@@ -316,6 +338,10 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
             print("No eligible modules found for Torch-Pruning; returning model unchanged.")
             return model
 
+        # Default sensitivity for modules that were not explicitly categorized
+        for module in prunable_modules:
+            module_sensitivity.setdefault(module, 1.0)
+
         # Initialize pruner with SwinIR-specific settings
         pruner = tp.pruner.MagnitudePruner(
             model,
@@ -329,7 +355,18 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
         )
         
         # Apply pruning
-        pruner.step()
+        layer_pruning_ratios = {}
+        for module in prunable_modules:
+            sensitivity = module_sensitivity.get(module, 1.0)
+            layer_ratio = min(pruning_ratio * sensitivity, 0.25)
+            layer_pruning_ratios[module] = layer_ratio
+
+        try:
+            pruner.step(pruning_ratios=layer_pruning_ratios)
+        except TypeError:
+            # Older Torch-Pruning versions may not accept pruning_ratios argument
+            print("Torch-Pruning version does not support layer-wise ratios; using global ratio instead.")
+            pruner.step()
 
         # Validate PixelShuffle divisibility after pruning
         try:
@@ -376,7 +413,8 @@ def apply_structured_pruning_native(model, pruning_ratio=0.1):
                 # Check if the layer has enough channels to prune
                 if module.out_channels > 2:  # Need at least 2 channels to prune
                     # Use conservative pruning - limit to max 20% or 1 channel minimum
-                    effective_ratio = min(pruning_ratio, 0.2)
+                    sensitivity = get_layer_sensitivity(name)
+                    effective_ratio = min(pruning_ratio * sensitivity, 0.2)
                     channels_to_prune = max(1, int(module.out_channels * effective_ratio))
                     # Don't prune all channels
                     if channels_to_prune >= module.out_channels:
@@ -620,8 +658,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
-            # Randomly select 150 images for fine-tuning
-            train_set = torch.utils.data.Subset(train_set, random.sample(range(len(train_set)), min(150, len(train_set))))
+            # Use the full fine-tuning dataset (no random subsampling)
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             if opt['rank'] == 0:
                 print('Number of train images for fine-tuning: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
@@ -710,13 +747,16 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     
     # Pruning configuration
     total_pruning_ratio = 0.5  # Target 50% overall pruning
-    pruning_steps = 8  # Gradual pruning in 5 steps
+    pruning_steps = 12  # More gradual pruning across additional steps
+    schedule_weights = np.linspace(0.6, 1.0, pruning_steps)
+    pruning_schedule = [total_pruning_ratio * (w / schedule_weights.sum()) for w in schedule_weights]
     pruning_ratio_per_step = total_pruning_ratio / pruning_steps
     target_psnr_threshold = baseline_psnr - 0.2  # Stop if PSNR drops below this
     
     print(f"Target total pruning ratio: {total_pruning_ratio:.1%}")
     print(f"Pruning steps: {pruning_steps}")
     print(f"Pruning ratio per step: {pruning_ratio_per_step:.1%}")
+    print(f"Step ratio range: {pruning_schedule[0]:.2%} ? {pruning_schedule[-1]:.2%}")
     print(f"PSNR threshold: {target_psnr_threshold} dB")
     
     current_psnr = baseline_psnr if opt['rank'] == 0 else 1000  # Initialize with baseline
@@ -730,16 +770,17 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"{'-'*60}")
         
         # Apply structured channel pruning
-        print(f"Applying structured channel pruning (ratio: {pruning_ratio_per_step:.1%})...")
+        current_pruning_ratio = pruning_schedule[pruning_iteration - 1]
+        print(f"Applying structured channel pruning (ratio: {current_pruning_ratio:.2%})...")
         
         # Get the actual network (handle model wrapper)
         network = model.netG if hasattr(model, 'netG') else model
         
         # Apply structured pruning
         if TORCH_PRUNING_AVAILABLE:
-            network = apply_structured_pruning_torch_pruning(network, pruning_ratio_per_step)
+            network = apply_structured_pruning_torch_pruning(network, current_pruning_ratio)
         else:
-            network = apply_structured_pruning_native(network, pruning_ratio_per_step)
+            network = apply_structured_pruning_native(network, current_pruning_ratio)
         
         # Update model
         if hasattr(model, 'netG'):
