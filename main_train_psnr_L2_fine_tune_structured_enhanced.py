@@ -495,7 +495,7 @@ def print_results_table(results):
     print("      Negative changes in PSNR/SSIM indicate quality degradation")
     print("="*100)
 
-def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=20):
+def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=40):
     """
     Comprehensive model evaluation function.
     Returns PSNR, SSIM, and average inference time.
@@ -516,9 +516,9 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
             idx += 1
             
             # Limit evaluation to max_images for faster research
-            ##if idx > max_images:
-              ##  print(f"  (Limiting evaluation to {max_images} images for speed)")
-                #break
+            if idx > max_images:
+                print(f"  (Limiting evaluation to {max_images} images for speed)")
+                break
                 
             image_name_ext = os.path.basename(test_data['L_path'][0])
             img_name, ext = os.path.splitext(image_name_ext)
