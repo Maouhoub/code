@@ -60,3 +60,11 @@ kornia>=0.6.0
 pytest>=7.0.0
 jupyter>=1.0.0
 ipykernel>=6.9.0
+
+
+# Deployment and Benchmarking
+
+
+
+onnx>=1.14.0
+onnxruntime>=1.16.0
