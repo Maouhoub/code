@@ -760,7 +760,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print("="*80)
     
     # Pruning configuration
-    total_pruning_ratio = 0.9  # Target 50% overall pruning
+    total_pruning_ratio = 0.7 # Target 50% overall pruning
     pruning_steps = 50  # More gradual pruning across additional steps
     schedule_weights = np.linspace(0.6, 1.0, pruning_steps)
     pruning_schedule = [total_pruning_ratio * (w / schedule_weights.sum()) for w in schedule_weights]
