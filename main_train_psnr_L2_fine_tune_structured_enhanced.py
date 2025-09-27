@@ -511,6 +511,11 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
 
     model_network = model.netG if hasattr(model, 'netG') else model
     model_network.eval()
+
+    try:
+        timing_device = next(model_network.parameters()).device
+    except StopIteration:
+        timing_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     with torch.no_grad():
         for test_data in test_loader:
@@ -533,8 +538,16 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
 
             # Forward pass with timing
             model.feed_data(test_data)
+
+            if torch.cuda.is_available() and isinstance(timing_device, torch.device) and timing_device.type == 'cuda':
+                torch.cuda.synchronize(timing_device)
+
             start_time = time.time()
             model.test()
+
+            if torch.cuda.is_available() and isinstance(timing_device, torch.device) and timing_device.type == 'cuda':
+                torch.cuda.synchronize(timing_device)
+
             end_time = time.time()
             
             inference_time = end_time - start_time
@@ -748,7 +761,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     
     # Pruning configuration
     total_pruning_ratio = 0.5  # Target 50% overall pruning
-    pruning_steps = 12  # More gradual pruning across additional steps
+    pruning_steps = 50  # More gradual pruning across additional steps
     schedule_weights = np.linspace(0.6, 1.0, pruning_steps)
     pruning_schedule = [total_pruning_ratio * (w / schedule_weights.sum()) for w in schedule_weights]
     pruning_ratio_per_step = total_pruning_ratio / pruning_steps
@@ -944,13 +957,34 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         # Update the model
         if hasattr(model, 'netG'):
             model.netG = model_network
+
+        # Build safe checkpoint for reloading the pruned network
+        pruned_module = model_network.module if hasattr(model_network, 'module') else model_network
+        module_snapshot = copy.deepcopy(pruned_module).cpu()
+        pruned_checkpoint = {
+            'model': module_snapshot,
+            'state_dict': module_snapshot.state_dict(),
+            'metadata': {
+                'step': current_step,
+                'pruning_iterations_completed': pruning_iteration,
+                'target_pruning_ratio_per_step': pruning_ratio_per_step,
+                'baseline_stats': baseline_stats,
+                'final_stats': final_stats,
+                'fine_tune': opt.get('fine_tune', {}),
+                'netG_config': opt.get('netG', {}),
+                'scale': opt.get('scale')
+            }
+        }
+        pruned_model_path = os.path.join(opt['path']['models'], f"netG_pruned_snapshot_step{current_step}.pth")
+        torch.save(pruned_checkpoint, pruned_model_path)
+        print(f" Torch snapshot saved: {pruned_model_path}")
         
-        # Save the model
+        # Save the model using the framework's native routine as well
         try:
             model.save(current_step)
-            print('? Model saved successfully!')
+            print(' Model saved successfully via framework save()!')
         except Exception as e:
-            print(f'? Error saving model: {e}')
+            print(f' Error saving model with framework saver: {e}')
         
         # Save additional information
         results_path = os.path.join(opt['path']['models'], 'pruning_results.txt')
@@ -971,6 +1005,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 change_pct = (change / baseline) * 100 if baseline != 0 else 0
                 
                 f.write(f"- {metric}: {baseline:.4f} ? {pruned:.4f} ({change_pct:+.2f}%)\n")
+
+            f.write(f"\nSaved pruned model snapshot: {pruned_model_path}\n")
         
         print(f'?? Results summary saved to: {results_path}')
         
