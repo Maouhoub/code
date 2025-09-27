@@ -15,7 +15,7 @@
     "pretrained_netE": null
   },
   "fine_tune": {
-    "L2_ft_epochs": 24
+    "L2_ft_epochs": 20
   },
   "datasets": {
     "train": {

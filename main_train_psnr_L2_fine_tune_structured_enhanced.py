@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 import time
 import copy
 from collections import defaultdict
@@ -495,7 +496,7 @@ def print_results_table(results):
     print("      Negative changes in PSNR/SSIM indicate quality degradation")
     print("="*100)
 
-def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=40):
+def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=22):
     """
     Comprehensive model evaluation function.
     Returns PSNR, SSIM, and average inference time.
@@ -819,7 +820,17 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"\n?? Fine-tuning after pruning iteration {pruning_iteration}...")
         
         fine_tune_epochs = opt['fine_tune']['L2_ft_epochs']
+        patience = opt['fine_tune'].get('early_stop_patience', 3)
+        if patience is None or patience <= 0:
+            patience = fine_tune_epochs
+        min_delta = opt['fine_tune'].get('early_stop_min_delta', 0.0) or 0.0
+        best_loss = float('inf')
+        epochs_without_improvement = 0
+        stop_early = False
+
         print(f"Fine-tuning epochs: {fine_tune_epochs}")
+        if opt['rank'] == 0:
+            print(f"Early stopping patience: {patience} | min_delta: {min_delta}")
 
         for epoch in range(fine_tune_epochs):
             if opt['rank'] == 0:
@@ -848,10 +859,33 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                         epoch_loss += logs['G_loss']
                     num_batches += 1
 
-            # Log training information
-            if opt['rank'] == 0 and num_batches > 0:
-                avg_loss = epoch_loss / num_batches
-                print(f"  Epoch {epoch+1} - Average Loss: {avg_loss:.6f}")
+            # Log training information & early stopping checks
+            if opt['rank'] == 0:
+                if num_batches > 0:
+                    avg_loss = epoch_loss / num_batches
+                    print(f"  Epoch {epoch+1} - Average Loss: {avg_loss:.6f}")
+
+                    if avg_loss + min_delta < best_loss:
+                        best_loss = avg_loss
+                        epochs_without_improvement = 0
+                    else:
+                        epochs_without_improvement += 1
+                        print(f"    No improvement ({epochs_without_improvement}/{patience})")
+                        if epochs_without_improvement >= patience:
+                            print("    Early stopping triggered: loss plateaued")
+                            stop_early = True
+                else:
+                    print("  Warning: No batches processed during fine-tuning epoch")
+
+            # Sync early stopping decision across processes if needed
+            if opt['dist'] and dist.is_available() and dist.is_initialized():
+                device_for_sync = next(model.parameters()).device
+                stop_tensor = torch.tensor([1 if stop_early else 0], device=device_for_sync, dtype=torch.int)
+                dist.broadcast(stop_tensor, src=0)
+                stop_early = bool(stop_tensor.item())
+
+            if stop_early:
+                break
 
         # =============================================================================
         # Evaluation after Fine-tuning
