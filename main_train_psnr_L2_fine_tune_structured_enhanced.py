@@ -833,7 +833,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"\n?? Fine-tuning after pruning iteration {pruning_iteration}...")
         
         fine_tune_epochs = opt['fine_tune']['L2_ft_epochs']
-        patience = opt['fine_tune'].get('early_stop_patience', 3)
+        patience = opt['fine_tune'].get('early_stop_patience', 6)
         if patience is None or patience <= 0:
             patience = fine_tune_epochs
         min_delta = opt['fine_tune'].get('early_stop_min_delta', 0.0) or 0.0
@@ -960,7 +960,14 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
         # Build safe checkpoint for reloading the pruned network
         pruned_module = model_network.module if hasattr(model_network, 'module') else model_network
-        module_snapshot = copy.deepcopy(pruned_module).cpu()
+        module_snapshot = copy.deepcopy(pruned_module).cpu().eval()
+
+        # 1) Full module serialization (architecture + weights)
+        pruned_model_full_path = os.path.join(opt['path']['models'], f"netG_pruned_full_step{current_step}.pth")
+        torch.save(module_snapshot, pruned_model_full_path)
+        print(f" Full model (architecture + weights) saved: {pruned_model_full_path}")
+
+        # 2) Lightweight checkpoint with explicit metadata/state_dict
         pruned_checkpoint = {
             'model': module_snapshot,
             'state_dict': module_snapshot.state_dict(),
@@ -975,9 +982,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 'scale': opt.get('scale')
             }
         }
-        pruned_model_path = os.path.join(opt['path']['models'], f"netG_pruned_snapshot_step{current_step}.pth")
-        torch.save(pruned_checkpoint, pruned_model_path)
-        print(f" Torch snapshot saved: {pruned_model_path}")
+        pruned_state_path = os.path.join(opt['path']['models'], f"netG_pruned_checkpoint_step{current_step}.pth")
+        torch.save(pruned_checkpoint, pruned_state_path)
+        print(f" Torch checkpoint saved: {pruned_state_path}")
         
         # Save the model using the framework's native routine as well
         try:
@@ -1006,7 +1013,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 
                 f.write(f"- {metric}: {baseline:.4f} ? {pruned:.4f} ({change_pct:+.2f}%)\n")
 
-            f.write(f"\nSaved pruned model snapshot: {pruned_model_path}\n")
+            f.write(f"\nSaved pruned model (full): {pruned_model_full_path}\n")
+            f.write(f"Saved pruned checkpoint  : {pruned_state_path}\n")
         
         print(f'?? Results summary saved to: {results_path}')
         
