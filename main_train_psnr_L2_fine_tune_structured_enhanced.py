@@ -964,7 +964,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # Initialize data-driven layer sensitivity analyzer
     sensitivity_cfg = opt.get('sensitivity', {}) if isinstance(opt, dict) else {}
     sensitivity_ratios = sensitivity_cfg.get('pruning_ratios', [0.1, 0.2, 0.3, 0.4])
-    sensitivity_images = sensitivity_cfg.get('num_validation_images', 20)
+    sensitivity_images = sensitivity_cfg.get('num_validation_images', 3)
 
     try:
         analyzer_model = model.netG if hasattr(model, 'netG') else model
