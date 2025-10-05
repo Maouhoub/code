@@ -26,6 +26,7 @@ import torch.distributed as dist
 import time
 import copy
 from collections import defaultdict
+import torch.nn.utils.prune as prune
 
 # Import Torch-Pruning for structured pruning
 try:
@@ -147,20 +148,224 @@ def count_parameters(model):
     return total, trainable
 
 
-def get_layer_sensitivity(layer_name):
-    """Return a multiplicative sensitivity factor for pruning ratios based on layer name."""
-    lname = layer_name.lower()
+LAYER_SENSITIVITY_ANALYZER = None
 
-    # Highly sensitive layers
-    if any(keyword in lname for keyword in ['conv_first', 'conv_after_body']):
-        return 0.4  # prune much less aggressively
 
-    # Moderately sensitive layers (e.g., upsampling pipeline)
-    if any(keyword in lname for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
-        return 0.6
+class LayerSensitivityAnalyzer:
+    """Measure PSNR sensitivity of layers under structured pruning."""
 
-    # Default sensitivity
-    return 1.0
+    def __init__(self, base_network, eval_loader, opt, device,
+                 pruning_ratios=None, num_validation_images=4, verbose=True):
+        self.device = device
+        self.eval_loader = eval_loader
+        self.border = opt.get('scale', 0) if isinstance(opt, dict) else 0
+        self.pruning_ratios = pruning_ratios or [0.1, 0.2, 0.3, 0.4]
+        self.num_validation_images = max(1, num_validation_images)
+        self.verbose = verbose
+
+        # Work with an unwrapped version of the network (detach DDP wrappers).
+        self.reference_network = self._prepare_reference_network(base_network)
+        self.cache = {}
+
+        self.baseline_psnr = self._compute_baseline_psnr()
+        if self.verbose:
+            print(f"? Layer sensitivity baseline PSNR (subset of {self.num_validation_images} imgs): "
+                  f"{self.baseline_psnr:.4f} dB")
+
+    def _prepare_reference_network(self, network):
+        module = network.module if hasattr(network, 'module') else network
+        module_cpu = copy.deepcopy(module).cpu()
+        module_cpu.eval()
+        return module_cpu
+
+    def _compute_baseline_psnr(self):
+        network = copy.deepcopy(self.reference_network).to(self.device)
+        psnr = self._evaluate_network_psnr(network)
+        # move back to cpu to release device memory
+        network.cpu()
+        del network
+        return psnr
+
+    def _evaluate_network_psnr(self, network):
+        original_mode = network.training
+        network.eval()
+        total_psnr = 0.0
+        total_images = 0
+
+        with torch.no_grad():
+            for batch in self.eval_loader:
+                if 'L' not in batch:
+                    continue
+
+                lr = batch['L'].to(self.device)
+                hr = batch.get('H')
+                if hr is None:
+                    continue
+                hr = hr.to(self.device)
+
+                sr = network(lr)
+                if isinstance(sr, (list, tuple)):
+                    sr = sr[0]
+
+                sr = sr.clamp(0, 1)
+                hr = hr.clamp(0, 1)
+
+                sr_cpu = sr.detach().cpu()
+                hr_cpu = hr.detach().cpu()
+
+                for i in range(sr_cpu.size(0)):
+                    sr_img = util.tensor2uint(sr_cpu[i:i+1])
+                    hr_img = util.tensor2uint(hr_cpu[i:i+1])
+                    total_psnr += util.calculate_psnr(sr_img, hr_img, border=self.border)
+                    total_images += 1
+
+                    if total_images >= self.num_validation_images:
+                        break
+
+                if total_images >= self.num_validation_images:
+                    break
+
+        network.train(original_mode)
+
+        if total_images == 0:
+            if self.verbose:
+                print('? Layer sensitivity warning: No validation images processed.')
+            return 0.0
+
+        return total_psnr / total_images
+
+    def get_sensitivity(self, layer_name, module_hint=None):
+        if layer_name in self.cache:
+            return self.cache[layer_name]
+
+        reference_module = module_hint
+        if reference_module is None:
+            reference_module = self._get_module_by_name(self.reference_network, layer_name)
+
+        if reference_module is None:
+            if self.verbose:
+                print(f"? Layer sensitivity: could not locate layer '{layer_name}', defaulting to 1.0")
+            self.cache[layer_name] = 1.0
+            return 1.0
+
+        if not isinstance(reference_module, (nn.Conv2d, nn.Linear)):
+            self.cache[layer_name] = 1.0
+            return 1.0
+
+        if self.baseline_psnr == 0:
+            self.cache[layer_name] = 1.0
+            return 1.0
+
+        delta_psnrs = []
+        for ratio in self.pruning_ratios:
+            pruned_psnr = self._evaluate_pruned_psnr(layer_name, ratio)
+            delta = self.baseline_psnr - pruned_psnr
+            delta_psnrs.append(delta)
+            if self.verbose:
+                print(f"    Layer {layer_name} | ratio {ratio:.0%} -> PSNR {pruned_psnr:.4f} dB | Δ {delta:+.4f}")
+
+        sensitivity = float(np.mean(delta_psnrs)) if delta_psnrs else 0.0
+        self.cache[layer_name] = sensitivity
+
+        if self.verbose:
+            self._print_ranking()
+
+        return sensitivity
+
+    def _evaluate_pruned_psnr(self, layer_name, ratio):
+        network = copy.deepcopy(self.reference_network)
+        module = self._get_module_by_name(network, layer_name)
+        if module is None:
+            return self.baseline_psnr
+
+        channels = self._get_out_channels(module)
+        if channels <= 1:
+            return self.baseline_psnr
+
+        amount = max(1, int(round(channels * ratio)))
+        if amount >= channels:
+            amount = channels - 1
+
+        if amount <= 0:
+            return self.baseline_psnr
+
+        try:
+            prune.ln_structured(module, name='weight', amount=amount, n=2, dim=0)
+            prune.remove(module, 'weight')
+        except Exception as e:
+            if self.verbose:
+                print(f"? Layer sensitivity pruning failed for {layer_name} at ratio {ratio}: {e}")
+            return self.baseline_psnr
+
+        network = network.to(self.device)
+        psnr = self._evaluate_network_psnr(network)
+        network.cpu()
+        del network
+        if isinstance(self.device, torch.device) and self.device.type == 'cuda':
+            torch.cuda.empty_cache()
+        return psnr
+
+    def _get_module_by_name(self, network, name):
+        if not name:
+            return None
+
+        module = network
+        parts = name.split('.')
+        for part in parts:
+            if part == 'module':
+                continue
+            if hasattr(module, part):
+                module = getattr(module, part)
+            elif part.isdigit() and hasattr(module, '__getitem__'):
+                module = module[int(part)]
+            else:
+                return None
+        return module
+
+    def _get_out_channels(self, module):
+        if isinstance(module, nn.Conv2d):
+            return module.out_channels
+        if isinstance(module, nn.Linear):
+            return module.out_features
+        return 0
+
+    def _print_ranking(self, top_k=8):
+        if not self.cache:
+            return
+        ranking = sorted(self.cache.items(), key=lambda kv: kv[1], reverse=True)
+        top_entries = ranking[:min(top_k, len(ranking))]
+        print("  Layer sensitivity ranking (top {})".format(len(top_entries)))
+        for idx, (name, score) in enumerate(top_entries, 1):
+            print(f"    {idx:>2d}. {name} -> S(L) = {score:.4f}")
+
+
+def initialize_layer_sensitivity_analyzer(model, eval_loader, opt, device,
+                                          pruning_ratios=None, num_validation_images=4,
+                                          verbose=True):
+    global LAYER_SENSITIVITY_ANALYZER
+
+    if eval_loader is None:
+        if verbose:
+            print('? Layer sensitivity initialization skipped: no validation loader provided.')
+        return
+
+    base_network = model.module if hasattr(model, 'module') else model
+    LAYER_SENSITIVITY_ANALYZER = LayerSensitivityAnalyzer(
+        base_network,
+        eval_loader,
+        opt,
+        device,
+        pruning_ratios=pruning_ratios,
+        num_validation_images=num_validation_images,
+        verbose=verbose
+    )
+
+
+def get_layer_sensitivity(layer_name, module=None):
+    """Return data-driven PSNR sensitivity for the provided layer."""
+    if LAYER_SENSITIVITY_ANALYZER is None:
+        return 1.0
+    return LAYER_SENSITIVITY_ANALYZER.get_sensitivity(layer_name, module_hint=module)
 
 def validate_pixelshuffle_constraints(model, scale_factor=2):
     """
@@ -269,7 +474,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
                 if 'mlp.fc1' in lower_name:
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name, module)
                 elif 'mlp.fc2' in lower_name:
                     fc2_names.append(name)
                 else:
@@ -284,19 +489,19 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
                 if 'conv_first' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name, module)
                     continue
 
                 if 'conv_after_body' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name, module)
                     continue
 
                 if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name, module)
                     out_channel_groups[module] = max(pixelshuffle_group_size, 1)
                     continue
 
@@ -307,7 +512,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
                 if embed_dim is not None and module.out_channels == embed_dim:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = get_layer_sensitivity(name, module)
                     continue
 
                 ignored_modules.add(module)
@@ -414,7 +619,7 @@ def apply_structured_pruning_native(model, pruning_ratio=0.1):
                 # Check if the layer has enough channels to prune
                 if module.out_channels > 2:  # Need at least 2 channels to prune
                     # Use conservative pruning - limit to max 20% or 1 channel minimum
-                    sensitivity = get_layer_sensitivity(name)
+                    sensitivity = get_layer_sensitivity(name, module)
                     effective_ratio = min(pruning_ratio * sensitivity, 0.2)
                     channels_to_prune = max(1, int(module.out_channels * effective_ratio))
                     # Don't prune all channels
@@ -741,6 +946,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # =============================================================================
     # Baseline Testing (Before Pruning)
     # =============================================================================
+    baseline_psnr = 0.0
+    baseline_ssim = 0.0
+    baseline_inference_time = 0.0
+
     print("\nEvaluating baseline model...")
     if opt['rank'] == 0:
         baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(model, test_loader, opt, current_step, "baseline")
@@ -751,6 +960,29 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"Baseline PSNR: {baseline_psnr:.4f} dB")
         print(f"Baseline SSIM: {baseline_ssim:.4f}")
         print(f"Baseline Inference Time: {baseline_inference_time:.4f} s")
+
+    # Initialize data-driven layer sensitivity analyzer
+    sensitivity_cfg = opt.get('sensitivity', {}) if isinstance(opt, dict) else {}
+    sensitivity_ratios = sensitivity_cfg.get('pruning_ratios', [0.1, 0.2, 0.3, 0.4])
+    sensitivity_images = sensitivity_cfg.get('num_validation_images', 20)
+
+    try:
+        analyzer_model = model.netG if hasattr(model, 'netG') else model
+        initialize_layer_sensitivity_analyzer(
+            analyzer_model,
+            test_loader,
+            opt,
+            device,
+            pruning_ratios=sensitivity_ratios,
+            num_validation_images=sensitivity_images,
+            verbose=(opt['rank'] == 0)
+        )
+    except Exception as analyzer_error:
+        if opt['rank'] == 0:
+            print(f"? Warning: Layer sensitivity analyzer initialization failed: {analyzer_error}")
+
+    if baseline_psnr == 0.0 and LAYER_SENSITIVITY_ANALYZER is not None:
+        baseline_psnr = LAYER_SENSITIVITY_ANALYZER.baseline_psnr
 
     # =============================================================================
     # Structured Channel Pruning with Progressive Fine-tuning
