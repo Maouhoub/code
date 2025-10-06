@@ -13,6 +13,7 @@
 """
 
 import os.path
+import json
 import math
 import argparse
 import random
@@ -155,28 +156,135 @@ class LayerSensitivityAnalyzer:
     """Measure PSNR sensitivity of layers under structured pruning."""
 
     def __init__(self, base_network, eval_loader, opt, device,
-                 pruning_ratios=None, num_validation_images=4, verbose=True):
+                 pruning_ratios=None, num_validation_images=4, verbose=True,
+                 cache_path=None):
         self.device = device
         self.eval_loader = eval_loader
         self.border = opt.get('scale', 0) if isinstance(opt, dict) else 0
         self.pruning_ratios = pruning_ratios or [0.1, 0.2, 0.3, 0.4]
         self.num_validation_images = max(1, num_validation_images)
         self.verbose = verbose
+        self.cache_path = cache_path
 
         # Work with an unwrapped version of the network (detach DDP wrappers).
         self.reference_network = self._prepare_reference_network(base_network)
         self.cache = {}
+        self.raw_cache = {}
+        self.metadata = {
+            'pruning_ratios': list(self.pruning_ratios),
+            'num_validation_images': self.num_validation_images
+        }
+        self.baseline_psnr = None
+        self._dirty = False
 
-        self.baseline_psnr = self._compute_baseline_psnr()
+        self._load_cache_from_disk()
+
+        if self.baseline_psnr is None:
+            self.baseline_psnr = self._compute_baseline_psnr()
+            self.metadata['baseline_psnr'] = self.baseline_psnr
+            self._dirty = True
+            self._persist_cache()
+
         if self.verbose:
             print(f"? Layer sensitivity baseline PSNR (subset of {self.num_validation_images} imgs): "
                   f"{self.baseline_psnr:.4f} dB")
+            if self.cache:
+                print(f"? Loaded {len(self.cache)} cached layer sensitivities from {self.cache_path}")
 
     def _prepare_reference_network(self, network):
         module = network.module if hasattr(network, 'module') else network
         module_cpu = copy.deepcopy(module).cpu()
         module_cpu.eval()
         return module_cpu
+
+    def _load_cache_from_disk(self):
+        if not self.cache_path:
+            return
+
+        try:
+            if not os.path.isfile(self.cache_path):
+                return
+
+            with open(self.cache_path, 'r') as f:
+                data = json.load(f)
+
+            cached_ratios = data.get('pruning_ratios')
+            cached_images = data.get('num_validation_images')
+
+            if cached_ratios != list(self.pruning_ratios) or cached_images != self.num_validation_images:
+                if self.verbose:
+                    print(f"? Cached sensitivities at {self.cache_path} ignored due to configuration mismatch.")
+                return
+
+            self.metadata.update({
+                'baseline_psnr': data.get('baseline_psnr'),
+                'timestamp': data.get('timestamp'),
+            })
+            self.baseline_psnr = data.get('baseline_psnr')
+
+            layers = data.get('layers', {})
+            for name, entry in layers.items():
+                if isinstance(entry, dict):
+                    scaled = float(entry.get('scaled', entry.get('raw', 1.0)))
+                    raw = float(entry.get('raw', entry.get('scaled', 1.0)))
+                else:
+                    scaled = float(entry)
+                    raw = float(entry)
+                self.cache[name] = scaled
+                self.raw_cache[name] = raw
+
+            self._dirty = False
+        except Exception as e:
+            if self.verbose:
+                print(f"? Failed to load sensitivity cache from {self.cache_path}: {e}")
+
+    def _persist_cache(self):
+        if not self.cache_path or not self._dirty:
+            return
+
+        try:
+            cache_dir = os.path.dirname(self.cache_path)
+            if cache_dir and not os.path.isdir(cache_dir):
+                os.makedirs(cache_dir, exist_ok=True)
+
+            payload = {
+                'version': 1,
+                'baseline_psnr': self.baseline_psnr,
+                'num_validation_images': self.num_validation_images,
+                'pruning_ratios': list(self.pruning_ratios),
+                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'layers': {}
+            }
+
+            for name in sorted(self.cache.keys()):
+                payload['layers'][name] = {
+                    'scaled': float(self.cache[name]),
+                    'raw': float(self.raw_cache.get(name, self.cache[name]))
+                }
+
+            tmp_path = self.cache_path + '.tmp'
+            with open(tmp_path, 'w') as f:
+                json.dump(payload, f, indent=2, sort_keys=True)
+            os.replace(tmp_path, self.cache_path)
+            self._dirty = False
+            if self.verbose:
+                print(f"? Persisted {len(self.cache)} layer sensitivities to {self.cache_path}")
+        except Exception as e:
+            if self.verbose:
+                print(f"? Failed to persist sensitivity cache to {self.cache_path}: {e}")
+
+    def _convert_sensitivity(self, raw_delta):
+        denom = max(1e-6, 1.0 + float(raw_delta))
+        return max(0.0, 1.0 / denom)
+
+    def _log_all_sensitivities(self):
+        if not self.verbose or not self.cache:
+            return
+
+        print("? Layer sensitivity cache snapshot:")
+        for name, scaled in sorted(self.cache.items(), key=lambda kv: kv[0]):
+            raw = self.raw_cache.get(name, scaled)
+            print(f"    {name:<60} scaled={scaled:.6f} | raw_delta={raw:.6f}")
 
     def _compute_baseline_psnr(self):
         network = copy.deepcopy(self.reference_network).to(self.device)
@@ -264,13 +372,17 @@ class LayerSensitivityAnalyzer:
             if self.verbose:
                 print(f"    Layer {layer_name} | ratio {ratio:.0%} -> PSNR {pruned_psnr:.4f} dB | Δ {delta:+.4f}")
 
-        sensitivity = float(np.mean(delta_psnrs)) if delta_psnrs else 0.0
-        self.cache[layer_name] = sensitivity
+        raw_sensitivity = float(np.mean(delta_psnrs)) if delta_psnrs else 0.0
+        scaled_sensitivity = self._convert_sensitivity(raw_sensitivity)
+        self.raw_cache[layer_name] = raw_sensitivity
+        self.cache[layer_name] = scaled_sensitivity
+        self._dirty = True
+        self._persist_cache()
 
         if self.verbose:
-            self._print_ranking()
+            self._log_all_sensitivities()
 
-        return sensitivity
+        return scaled_sensitivity
 
     def _evaluate_pruned_psnr(self, layer_name, ratio):
         network = copy.deepcopy(self.reference_network)
@@ -341,7 +453,7 @@ class LayerSensitivityAnalyzer:
 
 def initialize_layer_sensitivity_analyzer(model, eval_loader, opt, device,
                                           pruning_ratios=None, num_validation_images=4,
-                                          verbose=True):
+                                          verbose=True, cache_path=None):
     global LAYER_SENSITIVITY_ANALYZER
 
     if eval_loader is None:
@@ -357,7 +469,8 @@ def initialize_layer_sensitivity_analyzer(model, eval_loader, opt, device,
         device,
         pruning_ratios=pruning_ratios,
         num_validation_images=num_validation_images,
-        verbose=verbose
+        verbose=verbose,
+        cache_path=cache_path
     )
 
 
@@ -965,6 +1078,11 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     sensitivity_cfg = opt.get('sensitivity', {}) if isinstance(opt, dict) else {}
     sensitivity_ratios = sensitivity_cfg.get('pruning_ratios', [0.1, 0.2, 0.3, 0.4])
     sensitivity_images = sensitivity_cfg.get('num_validation_images', 3)
+    sensitivity_cache_path = sensitivity_cfg.get('cache_path')
+    if sensitivity_cache_path is None:
+        default_cache_dir = opt['path'].get('log') or opt['path'].get('models') or opt['path'].get('root') or '.'
+        sensitivity_cache_path = os.path.join(default_cache_dir, 'layer_sensitivity_cache.json')
+    sensitivity_cache_path = os.path.abspath(os.path.expanduser(sensitivity_cache_path))
 
     try:
         analyzer_model = model.netG if hasattr(model, 'netG') else model
@@ -975,7 +1093,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             device,
             pruning_ratios=sensitivity_ratios,
             num_validation_images=sensitivity_images,
-            verbose=(opt['rank'] == 0)
+            verbose=(opt['rank'] == 0),
+            cache_path=sensitivity_cache_path
         )
     except Exception as analyzer_error:
         if opt['rank'] == 0:
