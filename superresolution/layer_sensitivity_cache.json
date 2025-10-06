@@ -1,0 +1,122 @@
+{
+  "baseline_psnr": 35.792810024430175,
+  "layers": {
+    "module.conv_after_body": {
+      "raw": 7.3838095782550734,
+      "scaled": 0.11927751825300051
+    },
+    "module.conv_first": {
+      "raw": 9.921334827035249,
+      "scaled": 0.09156389908718367
+    },
+    "module.layers.0.residual_group.blocks.0.mlp.fc1": {
+      "raw": 0.0780026648165002,
+      "scaled": 0.9276414916564442
+    },
+    "module.layers.0.residual_group.blocks.1.mlp.fc1": {
+      "raw": 0.0222292954860972,
+      "scaled": 0.9782541005386404
+    },
+    "module.layers.0.residual_group.blocks.2.mlp.fc1": {
+      "raw": 0.017164136339010483,
+      "scaled": 0.9831254998816731
+    },
+    "module.layers.0.residual_group.blocks.3.mlp.fc1": {
+      "raw": 0.014738730628920393,
+      "scaled": 0.9854753443580639
+    },
+    "module.layers.0.residual_group.blocks.4.mlp.fc1": {
+      "raw": 0.009406483608835003,
+      "scaled": 0.9906811737772826
+    },
+    "module.layers.0.residual_group.blocks.5.mlp.fc1": {
+      "raw": 0.009584733840279469,
+      "scaled": 0.9905062611200341
+    },
+    "module.layers.1.residual_group.blocks.0.mlp.fc1": {
+      "raw": 0.016968951183947922,
+      "scaled": 0.9833141895195593
+    },
+    "module.layers.1.residual_group.blocks.1.mlp.fc1": {
+      "raw": 0.013583475154216984,
+      "scaled": 0.9865985629332106
+    },
+    "module.layers.1.residual_group.blocks.2.mlp.fc1": {
+      "raw": 0.011466783501724365,
+      "scaled": 0.9886632129806319
+    },
+    "module.layers.1.residual_group.blocks.3.mlp.fc1": {
+      "raw": 0.012061003485930755,
+      "scaled": 0.988082730740155
+    },
+    "module.layers.1.residual_group.blocks.4.mlp.fc1": {
+      "raw": 0.015229039727811866,
+      "scaled": 0.9849994049304432
+    },
+    "module.layers.1.residual_group.blocks.5.mlp.fc1": {
+      "raw": 0.023279312691444787,
+      "scaled": 0.9772502850368242
+    },
+    "module.layers.2.residual_group.blocks.0.mlp.fc1": {
+      "raw": 0.0035477232970411166,
+      "scaled": 0.9964648185485534
+    },
+    "module.layers.2.residual_group.blocks.1.mlp.fc1": {
+      "raw": 0.001680936467534977,
+      "scaled": 0.9983218843382775
+    },
+    "module.layers.2.residual_group.blocks.2.mlp.fc1": {
+      "raw": 0.00352682144971439,
+      "scaled": 0.9964855733057344
+    },
+    "module.layers.2.residual_group.blocks.3.mlp.fc1": {
+      "raw": 0.004242861274562415,
+      "scaled": 0.9957750645404863
+    },
+    "module.layers.2.residual_group.blocks.4.mlp.fc1": {
+      "raw": 0.0003428888238889982,
+      "scaled": 0.999657228708556
+    },
+    "module.layers.2.residual_group.blocks.5.mlp.fc1": {
+      "raw": 0.0025715070665004447,
+      "scaled": 0.997435088621235
+    },
+    "module.layers.3.residual_group.blocks.0.mlp.fc1": {
+      "raw": 0.0029671719069312985,
+      "scaled": 0.9970416061561718
+    },
+    "module.layers.3.residual_group.blocks.1.mlp.fc1": {
+      "raw": 0.004301792874214172,
+      "scaled": 0.99571663328221
+    },
+    "module.layers.3.residual_group.blocks.2.mlp.fc1": {
+      "raw": 0.002442382509180163,
+      "scaled": 0.9975635681892592
+    },
+    "module.layers.3.residual_group.blocks.3.mlp.fc1": {
+      "raw": 0.00277735571407689,
+      "scaled": 0.9972303366263201
+    },
+    "module.layers.3.residual_group.blocks.4.mlp.fc1": {
+      "raw": 0.007534367925368102,
+      "scaled": 0.9925219742718233
+    },
+    "module.layers.3.residual_group.blocks.5.mlp.fc1": {
+      "raw": 0.00867877036570519,
+      "scaled": 0.9913959026196629
+    },
+    "module.upsample.0": {
+      "raw": 16.84002517709807,
+      "scaled": 0.05605373255211201
+    }
+  },
+  "num_validation_images": 12,
+  "pruning_ratios": [
+    0.1,
+    0.2,
+    0.3,
+    0.4
+  ],
+  "timestamp": "2025-10-06 14:08:44",
+  "version": 1
+}
