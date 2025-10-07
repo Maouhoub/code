@@ -1079,7 +1079,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     sensitivity_ratios = sensitivity_cfg.get('pruning_ratios', [0.03, 0.06, 0.09, 0.12])
 
     
-    sensitivity_images = sensitivity_cfg.get('num_validation_images', 20)
+    sensitivity_images = sensitivity_cfg.get('num_validation_images', 16)
     sensitivity_cache_path = sensitivity_cfg.get('cache_path')
     if sensitivity_cache_path is None:
         default_cache_dir = opt['path'].get('log') or opt['path'].get('models') or opt['path'].get('root') or '.'
