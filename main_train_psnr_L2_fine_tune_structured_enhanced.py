@@ -210,7 +210,10 @@ class LayerSensitivityAnalyzer:
 
             cached_ratios = data.get('pruning_ratios')
             cached_images = data.get('num_validation_images')
-            
+            print("cached_ratios", cached_ratios);
+            print("self.pruning_ratios", self.pruning_ratios)
+            print("cached_images", cached_images)
+            print("num_validation_images", num_validation_images)
             if cached_ratios != list(self.pruning_ratios) or cached_images != self.num_validation_images:
                 if self.verbose:
                     print(f"? Cached sensitivities at {self.cache_path} ignored due to configuration mismatch.")
