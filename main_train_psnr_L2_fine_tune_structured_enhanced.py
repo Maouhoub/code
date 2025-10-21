@@ -1079,7 +1079,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
     # Initialize data-driven layer sensitivity analyzer
     sensitivity_cfg = opt.get('sensitivity', {}) if isinstance(opt, dict) else {}
-    sensitivity_ratios = sensitivity_cfg.get('pruning_ratios', [0.03, 0.06, 0.09, 0.12])
+    sensitivity_ratios = sensitivity_cfg.get('pruning_ratios', [0.1, 0.2, 0.3, 0.4])
 
     
     sensitivity_images = sensitivity_cfg.get('num_validation_images', 12)
