@@ -1085,7 +1085,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         default_cache_dir = opt['path'].get('log') or opt['path'].get('models') or opt['path'].get('root') or '.'
         sensitivity_cache_path = os.path.join(default_cache_dir, 'layer_sensitivity_cache.json')
     sensitivity_cache_path = os.path.abspath(os.path.expanduser(sensitivity_cache_path))
-
+    print("sensitivity_cache_path", sensitivity_cache_path);
     try:
         analyzer_model = model.netG if hasattr(model, 'netG') else model
         initialize_layer_sensitivity_analyzer(
