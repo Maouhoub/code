@@ -346,6 +346,8 @@ class LayerSensitivityAnalyzer:
         return total_psnr / total_images
 
     def get_sensitivity(self, layer_name, module_hint=None):
+
+        print(f" Computing layer sensitivity for: {layer_name}")
         if layer_name in self.cache:
             return self.cache[layer_name]
 
