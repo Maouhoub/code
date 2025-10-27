@@ -205,22 +205,22 @@ def validate_pixelshuffle_constraints(model, scale_factor=2):
         print("? All PixelShuffle constraints satisfied")
         return True
 
-def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
+def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio_cap=0.25, native_layer_ratio_cap=0.2):
     """
     Apply structured channel pruning using Torch-Pruning library.
     """
     if not TORCH_PRUNING_AVAILABLE:
         print("Torch-Pruning not available, falling back to PyTorch native pruning")
-        return apply_structured_pruning_native(model, pruning_ratio)
-    
+        return apply_structured_pruning_native(model, pruning_ratio, max_layer_ratio=native_layer_ratio_cap)
+
     print(f"Applying structured channel pruning with ratio: {pruning_ratio}")
-    
+
     try:
         # Create pruner with SwinIR-specific configurations
         example_inputs = torch.randn(1, 3, 64, 64)
         if next(model.parameters()).is_cuda:
             example_inputs = example_inputs.cuda()
-        
+
         # Define importance metric (L1 norm for channels)
         imp = tp.importance.MagnitudeImportance(p=1)  # L1 norm
 
@@ -354,12 +354,12 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
             unwrapped_parameters=unwrapped_parameters,
             out_channel_groups=out_channel_groups if out_channel_groups else None,
         )
-        
+
         # Apply pruning
         layer_pruning_ratios = {}
         for module in prunable_modules:
             sensitivity = module_sensitivity.get(module, 1.0)
-            layer_ratio = min(pruning_ratio * sensitivity, 0.25)
+            layer_ratio = min(pruning_ratio * sensitivity, layer_ratio_cap)
             layer_pruning_ratios[module] = layer_ratio
 
         try:
@@ -374,14 +374,15 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1):
             validate_pixelshuffle_constraints(model)
         except Exception as pixelshuffle_error:
             print(f"Warning: PixelShuffle constraint check failed post-pruning: {pixelshuffle_error}")
-        
+
         return model
     except Exception as e:
         print(f"Error with Torch-Pruning: {e}")
         print("SwinIR attention mechanism is complex for Torch-Pruning, falling back to PyTorch native pruning")
-        return apply_structured_pruning_native(model, pruning_ratio)
+        return apply_structured_pruning_native(model, pruning_ratio, max_layer_ratio=native_layer_ratio_cap)
 
-def apply_structured_pruning_native(model, pruning_ratio=0.1):
+
+def apply_structured_pruning_native(model, pruning_ratio=0.1, max_layer_ratio=0.2):
     """
     Apply structured channel pruning using PyTorch native structured pruning.
     Uses SwinIR-specific pruning utilities.
@@ -392,11 +393,11 @@ def apply_structured_pruning_native(model, pruning_ratio=0.1):
         return swinir_structured_pruning(model, pruning_ratio)
     except ImportError:
         print("SwinIR pruning utils not found, falling back to basic pruning")
-        
+
         import torch.nn.utils.prune as prune  # Import here to ensure it's available
-        
+
         print(f"Applying PyTorch native structured channel pruning with ratio: {pruning_ratio}")
-        
+
         # Collect all Conv2d layers for structured pruning, excluding problematic ones
         modules_to_prune = []
         for name, module in model.named_modules():
@@ -404,23 +405,23 @@ def apply_structured_pruning_native(model, pruning_ratio=0.1):
                 # Skip attention-related Conv2d layers that might cause issues
                 if not any(skip_word in name.lower() for skip_word in ['attn', 'attention', 'relative_position']):
                     modules_to_prune.append((name, module, 'weight'))
-        
+
         print(f"Found {len(modules_to_prune)} Conv2d layers to prune (excluding attention layers)")
-        
+
         # Apply structured pruning (L1 norm, dim=0 for channel pruning)
         successful_prunes = 0
         for name, module, param_name in modules_to_prune:
             try:
                 # Check if the layer has enough channels to prune
                 if module.out_channels > 2:  # Need at least 2 channels to prune
-                    # Use conservative pruning - limit to max 20% or 1 channel minimum
+                    # Use conservative pruning - limit to configured maximum or 1 channel minimum
                     sensitivity = get_layer_sensitivity(name)
-                    effective_ratio = min(pruning_ratio * sensitivity, 0.2)
+                    effective_ratio = min(pruning_ratio * sensitivity, max_layer_ratio)
                     channels_to_prune = max(1, int(module.out_channels * effective_ratio))
                     # Don't prune all channels
                     if channels_to_prune >= module.out_channels:
                         channels_to_prune = module.out_channels - 1
-                    
+
                     prune.ln_structured(module, name=param_name, amount=channels_to_prune, n=1, dim=0)
                     successful_prunes += 1
                     print(f"  ? Pruned {name}: {channels_to_prune}/{module.out_channels} channels")
@@ -429,7 +430,7 @@ def apply_structured_pruning_native(model, pruning_ratio=0.1):
             except Exception as e:
                 print(f"  ? Could not prune layer {name}: {e}")
                 continue
-        
+
         print(f"Successfully pruned {successful_prunes}/{len(modules_to_prune)} layers")
         return model
 
@@ -640,6 +641,19 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # ----------------------------------------
     opt = option.dict_to_nonedict(opt)
 
+    structured_opt = opt.get('structured_pruning', {}) or {}
+    total_pruning_ratio = structured_opt.get('total_pruning_ratio', 0.7)
+    pruning_steps = int(structured_opt.get('pruning_steps', 18))
+    schedule_weight_start = structured_opt.get('schedule_weight_start', 0.6)
+    schedule_weight_end = structured_opt.get('schedule_weight_end', 1.0)
+    target_psnr_drop = structured_opt.get('target_psnr_drop', 0.2)
+    max_layer_ratio = structured_opt.get('max_layer_ratio', 0.25)
+    native_max_layer_ratio = structured_opt.get('native_max_layer_ratio', 0.2)
+    max_eval_images = int(structured_opt.get('max_eval_images', 22))
+
+    if pruning_steps <= 0:
+        raise ValueError("structured_pruning.pruning_steps must be a positive integer")
+
     # ----------------------------------------
     # configure logger
     # ----------------------------------------
@@ -743,7 +757,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # =============================================================================
     print("\nEvaluating baseline model...")
     if opt['rank'] == 0:
-        baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(model, test_loader, opt, current_step, "baseline")
+        baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(
+            model, test_loader, opt, current_step, "baseline", max_images=max_eval_images)
         results['PSNR (dB)']['baseline'] = baseline_psnr
         results['SSIM']['baseline'] = baseline_ssim
         results['Inference Time (s)']['baseline'] = baseline_inference_time
@@ -760,18 +775,21 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print("="*80)
     
     # Pruning configuration
-    total_pruning_ratio = 0.7 # Target 50% overall pruning
-    pruning_steps = 18  # More gradual pruning across additional steps
-    schedule_weights = np.linspace(0.6, 1.0, pruning_steps)
-    pruning_schedule = [total_pruning_ratio * (w / schedule_weights.sum()) for w in schedule_weights]
+    schedule_weights = np.linspace(schedule_weight_start, schedule_weight_end, pruning_steps)
+    weight_sum = schedule_weights.sum()
+    if weight_sum == 0:
+        pruning_schedule = [total_pruning_ratio / pruning_steps] * pruning_steps
+    else:
+        pruning_schedule = [total_pruning_ratio * (w / weight_sum) for w in schedule_weights]
     pruning_ratio_per_step = total_pruning_ratio / pruning_steps
-    target_psnr_threshold = baseline_psnr - 0.2  # Stop if PSNR drops below this
+    target_psnr_threshold = baseline_psnr - target_psnr_drop  # Stop if PSNR drops below this
     
     print(f"Target total pruning ratio: {total_pruning_ratio:.1%}")
     print(f"Pruning steps: {pruning_steps}")
     print(f"Pruning ratio per step: {pruning_ratio_per_step:.1%}")
     print(f"Step ratio range: {pruning_schedule[0]:.2%} ? {pruning_schedule[-1]:.2%}")
     print(f"PSNR threshold: {target_psnr_threshold} dB")
+    print(f"Layer ratio caps | Torch-Pruning: {max_layer_ratio:.2%}, Native: {native_max_layer_ratio:.2%}")
     
     current_psnr = baseline_psnr if opt['rank'] == 0 else 1000  # Initialize with baseline
     pruning_iteration = 0
@@ -792,9 +810,18 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         
         # Apply structured pruning
         if TORCH_PRUNING_AVAILABLE:
-            network = apply_structured_pruning_torch_pruning(network, current_pruning_ratio)
+            network = apply_structured_pruning_torch_pruning(
+                network,
+                pruning_ratio=current_pruning_ratio,
+                layer_ratio_cap=max_layer_ratio,
+                native_layer_ratio_cap=native_max_layer_ratio,
+            )
         else:
-            network = apply_structured_pruning_native(network, current_pruning_ratio)
+            network = apply_structured_pruning_native(
+                network,
+                pruning_ratio=current_pruning_ratio,
+                max_layer_ratio=native_max_layer_ratio,
+            )
         
         # Update model
         if hasattr(model, 'netG'):
@@ -906,7 +933,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"\n?? Evaluating model after pruning iteration {pruning_iteration}...")
         if opt['rank'] == 0:
             current_psnr, current_ssim, current_inference_time = evaluate_model(
-                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}")
+                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=max_eval_images)
             
             print(f"  PSNR: {current_psnr:.4f} dB")
             print(f"  SSIM: {current_ssim:.4f}")

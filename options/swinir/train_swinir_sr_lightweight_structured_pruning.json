@@ -17,7 +17,19 @@
     "pretrained_netE": null
   },
   "fine_tune": {
-    "L2_ft_epochs": 10
+    "L2_ft_epochs": 10,
+    "early_stop_patience": 6,
+    "early_stop_min_delta": 0.0
+  },
+  "structured_pruning": {
+    "total_pruning_ratio": 0.7,
+    "pruning_steps": 18,
+    "schedule_weight_start": 0.6,
+    "schedule_weight_end": 1.0,
+    "target_psnr_drop": 0.2,
+    "max_layer_ratio": 0.25,
+    "native_max_layer_ratio": 0.2,
+    "max_eval_images": 22
   },
   "datasets": {
     "train": {
