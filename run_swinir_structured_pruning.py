@@ -84,12 +84,7 @@ def main():
             config = json.load(f)
         
         print(f"\n?? Configuration Summary:")
-        print(f"   Task: {config.get('task', 'unknown')}")
-        print(f"   Model: {config.get('netG', {}).get('net_type', 'unknown')}")
-        print(f"   Scale Factor: {config.get('scale', 'unknown')}x")
-        print(f"   Embed Dim: {config.get('netG', {}).get('embed_dim', 'unknown')}")
-        print(f"   Fine-tune Epochs: {config.get('fine_tune', {}).get('L2_ft_epochs', 'unknown')}")
-        
+        print(config)
         # Show dataset paths
         train_dataset = config.get('datasets', {}).get('train', {})
         if train_dataset:
