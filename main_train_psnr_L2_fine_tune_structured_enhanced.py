@@ -977,7 +977,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         results['Inference Time (s)']['pruned'] = current_inference_time
 
 
-     
+        if len(test_datasets) == 0:
+            print("No extra datasets to test on")
         for ds in test_datasets:
             testing_set = define_Dataset(ds)
             testing_loader = DataLoader(testing_set, batch_size=1,
