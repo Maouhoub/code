@@ -53,14 +53,24 @@ def parse(opt_path, is_train=True):
     # datasets
     # ----------------------------------------
     for phase, dataset in opt['datasets'].items():
-        phase = phase.split('_')[0]
-        dataset['phase'] = phase
-        dataset['scale'] = opt['scale']  # broadcast
-        dataset['n_channels'] = opt['n_channels']  # broadcast
-        if 'dataroot_H' in dataset and dataset['dataroot_H'] is not None:
-            dataset['dataroot_H'] = os.path.expanduser(dataset['dataroot_H'])
-        if 'dataroot_L' in dataset and dataset['dataroot_L'] is not None:
-            dataset['dataroot_L'] = os.path.expanduser(dataset['dataroot_L'])
+        phase_key = phase.split('_')[0]
+        if isinstance(dataset, list):
+            for ds in dataset:
+                ds['phase'] = phase_key
+                ds['scale'] = opt['scale']
+                ds['n_channels'] = opt['n_channels']
+                if 'dataroot_H' in ds and ds['dataroot_H'] is not None:
+                    ds['dataroot_H'] = os.path.expanduser(ds['dataroot_H'])
+                if 'dataroot_L' in ds and ds['dataroot_L'] is not None:
+                    ds['dataroot_L'] = os.path.expanduser(ds['dataroot_L'])
+        else:
+            dataset['phase'] = phase_key
+            dataset['scale'] = opt['scale']  # broadcast
+            dataset['n_channels'] = opt['n_channels']  # broadcast
+            if 'dataroot_H' in dataset and dataset['dataroot_H'] is not None:
+                dataset['dataroot_H'] = os.path.expanduser(dataset['dataroot_H'])
+            if 'dataroot_L' in dataset and dataset['dataroot_L'] is not None:
+                dataset['dataroot_L'] = os.path.expanduser(dataset['dataroot_L'])
 
     # ----------------------------------------
     # path
