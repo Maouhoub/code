@@ -42,12 +42,12 @@
       "dataloader_num_workers": 2,
       "dataloader_batch_size": 16
     },
-    "test": {
-      "name": "test_dataset",
+    "test":[{
+      "name": "DIV2K",
       "dataset_type": "sr",
       "dataroot_H": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_HR",
       "dataroot_L": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_LR_bicubic/X2"
-    }
+    }]
   },
   "netG": {
     "net_type": "swinir",

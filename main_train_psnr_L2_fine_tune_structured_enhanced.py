@@ -683,6 +683,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # 1) create_dataset
     # 2) create_dataloader for train and test
     # ----------------------------------------
+    
+
+
+
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train':
             train_set = define_Dataset(dataset_opt)
@@ -708,12 +712,20 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                                           pin_memory=True)
 
         elif phase == 'test':
-            test_set = define_Dataset(dataset_opt)
+            test_ds =  dataset_opt[0]
+            test_set = define_Dataset(test_ds)
             test_loader = DataLoader(test_set, batch_size=1,
-                                     shuffle=False, num_workers=1,
-                                     drop_last=False, pin_memory=True)
+                                        shuffle=False, num_workers=1,
+                                        drop_last=False, pin_memory=True)
+            
+            test_datasets = [] if len(dataset_opt) <= 1 else dataset_opt[1:]
+
+            
         else:
             raise NotImplementedError("Phase [%s] is not recognized." % phase)
+        
+
+
 
     '''
     # ----------------------------------------
@@ -963,6 +975,17 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         results['PSNR (dB)']['pruned'] = current_psnr
         results['SSIM']['pruned'] = current_ssim
         results['Inference Time (s)']['pruned'] = current_inference_time
+
+
+     
+        for ds in test_datasets:
+            testing_set = define_Dataset(ds)
+            testing_loader = DataLoader(testing_set, batch_size=1,
+                                        shuffle=False, num_workers=1,
+                                        drop_last=False, pin_memory=True)
+            psnr, ssim, inference_time = evaluate_model(
+                model, testing_loader, opt, current_step, f"pruned_testset_{ds['name']}", max_images=max_eval_images)
+            print(f" Test Set {ds['name']} - PSNR: {psnr:.4f} dB | SSIM: {ssim:.4f} | Inference Time: {inference_time:.4f} s")
         
         # Print final comparison table
         print_results_table(results)
