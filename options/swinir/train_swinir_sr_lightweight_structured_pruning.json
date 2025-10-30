@@ -53,7 +53,7 @@
         "name": "Set5",
         "dataset_type": "sr",
         "dataroot_H": "/content/TEST_SETS/Set5/original",
-        "dataroot_L": "/content/TEST_SETS/Dataset/LRbicx2"
+        "dataroot_L": "/content/TEST_SETS/Set5/LRbicx2"
       }
     ]
   },
