@@ -876,7 +876,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         if patience is None or patience <= 0:
             patience = fine_tune_epochs
         min_delta = opt['fine_tune'].get('early_stop_min_delta', 0.0) or 0.0
-        best_loss = float('inf')
+        best_val_psnr = -float('inf')
+        best_val_ssim = -float('inf')
         epochs_without_improvement = 0
         stop_early = False
 
@@ -911,23 +912,29 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                         epoch_loss += logs['G_loss']
                     num_batches += 1
 
-            # Log training information & early stopping checks
+            # Log training information & early stopping checks based on validation metrics
             if opt['rank'] == 0:
                 if num_batches > 0:
                     avg_loss = epoch_loss / num_batches
                     print(f"  Epoch {epoch+1} - Average Loss: {avg_loss:.6f}")
-
-                    if avg_loss + min_delta < best_loss:
-                        best_loss = avg_loss
-                        epochs_without_improvement = 0
-                    else:
-                        epochs_without_improvement += 1
-                        print(f"    No improvement ({epochs_without_improvement}/{patience})")
-                        if epochs_without_improvement >= patience:
-                            print("    Early stopping triggered: loss plateaued")
-                            stop_early = True
                 else:
                     print("  Warning: No batches processed during fine-tuning epoch")
+
+                val_suffix = f"pruned_iter_{pruning_iteration}_epoch_{epoch+1}"
+                epoch_psnr, epoch_ssim, epoch_inference_time = evaluate_model(
+                    model, test_loader, opt, current_step, val_suffix, max_images=max_eval_images)
+                print(f"    Validation PSNR: {epoch_psnr:.4f} dB | SSIM: {epoch_ssim:.4f} | Time: {epoch_inference_time:.4f} s")
+
+                if epoch_psnr >= best_val_psnr + min_delta:
+                    best_val_psnr = epoch_psnr
+                    best_val_ssim = epoch_ssim
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+                    print(f"    No PSNR improvement ({epochs_without_improvement}/{patience})")
+                    if epochs_without_improvement >= patience:
+                        print("    Early stopping triggered: validation PSNR plateaued")
+                        stop_early = True
 
             # Sync early stopping decision across processes if needed
             if opt['dist'] and dist.is_available() and dist.is_initialized():
@@ -985,7 +992,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                                         shuffle=False, num_workers=1,
                                         drop_last=False, pin_memory=True)
             psnr, ssim, inference_time = evaluate_model(
-                model, testing_loader, opt, current_step, f"pruned_testset_{ds['name']}", max_images=max_eval_images)
+                model, testing_loader, opt, current_step, f"pruned_testset_{ds['name']}", max_images=max_eval_images // 2)
             print(f" Test Set {ds['name']} - PSNR: {psnr:.4f} dB | SSIM: {ssim:.4f} | Inference Time: {inference_time:.4f} s")
         
         # Print final comparison table
