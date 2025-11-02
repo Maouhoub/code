@@ -1,5 +1,5 @@
 {
-  "task": "swinir_sr_lightweight_x2_structured_pruning",
+  "task": "swinir_sr_lightweight_x2",
   "model": "plain",
   "gpu_ids": [
     0
@@ -11,9 +11,9 @@
   "path": {
     "root": "superresolution",
     "pretrained_netG": "superresolution/swinir_sr_lightweight_x2/models/001_classicalSR_DF2K_s64w8_SwinIR-M_x2.pth",
-    "models": "superresolution/swinir_sr_lightweight_structured_pruning/models",
-    "images": "superresolution/swinir_sr_lightweight_structured_pruning/images",
-    "log": "superresolution/swinir_sr_lightweight_structured_pruning",
+    "models": "superresolution/swinir_sr_lightweight_x2/models",
+    "images": "superresolution/swinir_sr_lightweight_x2/images",
+    "log": "superresolution/swinir_sr_lightweight_x2",
     "pretrained_netE": null
   },
   "fine_tune": {
@@ -54,6 +54,34 @@
         "dataset_type": "sr",
         "dataroot_H": "/content/TEST_SETS/BSDS100/HR",
         "dataroot_L": "/content/TEST_SETS/BSDS100/x2"
+      }
+      ,
+      {
+        "name": "Set14",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/Set14/HR",
+        "dataroot_L": "/content/TEST_SETS/Set14/x2"
+      }
+      ,
+      {
+        "name": "Set5",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/Set5/HR",
+        "dataroot_L": "/content/TEST_SETS/Set5/x2"
+      }
+      ,
+      {
+        "name": "manga109",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/manga109/HR",
+        "dataroot_L": "/content/TEST_SETS/manga109/x2"
+      }
+      ,
+      {
+        "name": "urban100",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/urban100/HR",
+        "dataroot_L": "/content/TEST_SETS/urban100/x2"
       }
     ]
   },
