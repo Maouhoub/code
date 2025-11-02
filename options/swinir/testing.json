@@ -10,7 +10,7 @@
   "n_channels": 3,
   "path": {
     "root": "superresolution",
-    "pretrained_netG": "wieights/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth",
+    "pretrained_netG": "superresolution/swinir_sr_lightweight_x2/models/001_classicalSR_DF2K_s64w8_SwinIR-M_x2.pth",
     "models": "superresolution/swinir_sr_lightweight_structured_pruning/models",
     "images": "superresolution/swinir_sr_lightweight_structured_pruning/images",
     "log": "superresolution/swinir_sr_lightweight_structured_pruning",
@@ -29,7 +29,7 @@
     "target_psnr_drop": 0.2,
     "max_layer_ratio": 0.25,
     "native_max_layer_ratio": 0.2,
-    "max_eval_images": 2
+    "max_eval_images": 1
   },
   "datasets": {
     "train": {
@@ -52,8 +52,8 @@
       {
         "name": "Set5",
         "dataset_type": "sr",
-        "dataroot_H": "/content/TEST_SETS/Set5/original",
-        "dataroot_L": "/content/TEST_SETS/Set5/LRbicx2"
+        "dataroot_H": "/content/set5-hr-lr/Set5/HR",
+        "dataroot_L": "/content/set5-hr-lr/Set5/LR/bicubic/x2"
       }
     ]
   },

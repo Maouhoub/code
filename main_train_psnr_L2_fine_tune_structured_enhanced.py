@@ -578,7 +578,7 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
     avg_ssim /= idx
     avg_inference_time /= idx
 
-    print(f"\n?? Evaluation Results ({suffix}):")
+    print(f"\n Evaluation Results ({suffix}):")
     print(f"  Average PSNR: {avg_psnr:.4f} dB")
     print(f"  Average SSIM: {avg_ssim:.4f}")
     print(f"  Average Inference Time: {avg_inference_time:.4f} s")
@@ -842,7 +842,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         # Validate PixelShuffle constraints after pruning
         scale_factor = opt.get('scale', 2)  # Default to 2x upscaling
         if not validate_pixelshuffle_constraints(network, scale_factor):
-            print("??  PixelShuffle constraints violated! Model may not work correctly.")
+            print("  PixelShuffle constraints violated! Model may not work correctly.")
         
         print("? Structured pruning applied successfully")
         
@@ -869,7 +869,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         # =============================================================================
         # Fine-tuning after Pruning
         # =============================================================================
-        print(f"\n?? Fine-tuning after pruning iteration {pruning_iteration}...")
+        print(f"\n Fine-tuning after pruning iteration {pruning_iteration}...")
         
         fine_tune_epochs = opt['fine_tune']['L2_ft_epochs']
         patience = opt['fine_tune'].get('early_stop_patience', 6)
@@ -942,7 +942,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         # =============================================================================
         # Evaluation after Fine-tuning
         # =============================================================================
-        print(f"\n?? Evaluating model after pruning iteration {pruning_iteration}...")
+        print(f"\n Evaluating model after pruning iteration {pruning_iteration}...")
         if opt['rank'] == 0:
             current_psnr, current_ssim, current_inference_time = evaluate_model(
                 model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=max_eval_images)
@@ -999,7 +999,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(" SAVING FINAL PRUNED MODEL")
         print("="*80)
         
-        print('?? Saving the final pruned model...')
+        print(' Saving the final pruned model...')
         
         # Remove pruning masks to make pruning permanent
         model_network = model.netG if hasattr(model, 'netG') else model
@@ -1067,9 +1067,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             f.write(f"\nSaved pruned model (full): {pruned_model_full_path}\n")
             f.write(f"Saved pruned checkpoint  : {pruned_state_path}\n")
         
-        print(f'?? Results summary saved to: {results_path}')
+        print(f' Results summary saved to: {results_path}')
         
-        print("\n?? Structured channel pruning completed successfully!")
+        print("\n Structured channel pruning completed successfully!")
         print("="*80)
 
 
