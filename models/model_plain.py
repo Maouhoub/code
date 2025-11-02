@@ -20,6 +20,7 @@ class ModelPlain(ModelBase):
         # ------------------------------------
         # define network
         # ------------------------------------
+        print("Model conf : ", opt)
         self.opt_train = self.opt['train']    # training option
         self.netG = define_G(opt)
         self.netG = self.model_to_device(self.netG)
