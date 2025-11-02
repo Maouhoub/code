@@ -10,7 +10,7 @@
   "n_channels": 3,
   "path": {
     "root": "superresolution",
-    "pretrained_netG": "superresolution/swinir_sr_lightweight_x2/models/001_classicalSR_DF2K_s64w8_SwinIR-M_x2.pth",
+    "pretrained_netG": "superresolution/swinir_sr_lightweight_x2/models/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth",
     "models": "superresolution/swinir_sr_lightweight_x2/models",
     "images": "superresolution/swinir_sr_lightweight_x2/images",
     "log": "superresolution/swinir_sr_lightweight_x2",
