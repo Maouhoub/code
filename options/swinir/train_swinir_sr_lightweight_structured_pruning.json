@@ -50,10 +50,38 @@
         "dataroot_L": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_LR_bicubic/X2"
       },
       {
+        "name": "BSDS100",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/BSDS100/HR",
+        "dataroot_L": "/content/TEST_SETS/BSDS100/x2"
+      }
+      ,
+      {
+        "name": "Set14",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/Set14/HR",
+        "dataroot_L": "/content/TEST_SETS/Set14/x2"
+      }
+      ,
+      {
         "name": "Set5",
         "dataset_type": "sr",
-        "dataroot_H": "/content/set5-hr-lr/Set5/HR",
-        "dataroot_L": "/content/set5-hr-lr/Set5/LR/bicubic/x2"
+        "dataroot_H": "/content/TEST_SETS/Set5/HR",
+        "dataroot_L": "/content/TEST_SETS/Set5/x2"
+      }
+      ,
+      {
+        "name": "manga109",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/manga109/HR",
+        "dataroot_L": "/content/TEST_SETS/manga109/x2"
+      }
+      ,
+      {
+        "name": "urban100",
+        "dataset_type": "sr",
+        "dataroot_H": "/content/TEST_SETS/urban100/HR",
+        "dataroot_L": "/content/TEST_SETS/urban100/x2"
       }
     ]
   },
