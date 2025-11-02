@@ -25,7 +25,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import time
 import copy
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 
 # Import Torch-Pruning for structured pruning
 try:
@@ -1020,15 +1020,29 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         pruned_module = model_network.module if hasattr(model_network, 'module') else model_network
         module_snapshot = copy.deepcopy(pruned_module).cpu().eval()
 
+        ema_snapshot = None
+        if hasattr(model, 'netE') and opt['train'].get('E_decay', 0) > 0:
+            ema_module = model.netE.module if hasattr(model.netE, 'module') else model.netE
+            ema_snapshot = copy.deepcopy(ema_module).cpu().eval()
+
         # 1) Full module serialization (architecture + weights)
         pruned_model_full_path = os.path.join(opt['path']['models'], f"netG_pruned_full_step{current_step}.pth")
         torch.save(module_snapshot, pruned_model_full_path)
         print(f" Full model (architecture + weights) saved: {pruned_model_full_path}")
 
-        # 2) Lightweight checkpoint with explicit metadata/state_dict
+        # 2) Checkpoint compatible with resume/reload that carries architecture + weights
+        pruned_params = OrderedDict((k, v.clone()) for k, v in module_snapshot.state_dict().items())
+        if ema_snapshot is not None:
+            ema_params = OrderedDict((k, v.clone()) for k, v in ema_snapshot.state_dict().items())
+        else:
+            ema_params = None
+
         pruned_checkpoint = {
-            'model': module_snapshot,
-            'state_dict': module_snapshot.state_dict(),
+            'is_structured_pruned': True,
+            'params': pruned_params,
+            'state_dict': pruned_params,
+            'pruned_model': module_snapshot,
+            'ema_model': ema_snapshot,
             'metadata': {
                 'step': current_step,
                 'pruning_iterations_completed': pruning_iteration,
@@ -1037,16 +1051,27 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 'final_stats': final_stats,
                 'fine_tune': opt.get('fine_tune', {}),
                 'netG_config': opt.get('netG', {}),
-                'scale': opt.get('scale')
+                'scale': opt.get('scale'),
+                'max_eval_images': max_eval_images
             }
         }
+        if ema_params is not None:
+            pruned_checkpoint['ema_params'] = ema_params
+
         pruned_state_path = os.path.join(opt['path']['models'], f"netG_pruned_checkpoint_step{current_step}.pth")
         torch.save(pruned_checkpoint, pruned_state_path)
         print(f" Torch checkpoint saved: {pruned_state_path}")
-        
-        # Save the model using the framework's native routine as well
+
+        # Overwrite the standard BasicSR checkpoint so resume works seamlessly
+        standard_pruned_path = os.path.join(opt['path']['models'], f"{current_step}_G.pth")
+        torch.save(pruned_checkpoint, standard_pruned_path)
+        print(f" Standard checkpoint updated for resume: {standard_pruned_path}")
+
+        # Save the model using the framework's native routine (will be overwritten above for netG)
         try:
             model.save(current_step)
+            # After model.save, rewrite the netG file again to ensure our format persists
+            torch.save(pruned_checkpoint, standard_pruned_path)
             print(' Model saved successfully via framework save()!')
         except Exception as e:
             print(f' Error saving model with framework saver: {e}')

@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import copy
 import torch
 import torch.nn as nn
 from torch.optim import lr_scheduler
@@ -54,7 +55,38 @@ class ModelPlain(ModelBase):
         print("Model Path : ", load_path_G)
         if load_path_G is not None:
             print('Loading model for G [{:s}] ...'.format(load_path_G))
-            self.load_network(load_path_G, self.netG, strict=self.opt_train['G_param_strict'], param_key='params')
+            checkpoint = torch.load(load_path_G, map_location='cpu')
+            if isinstance(checkpoint, dict) and checkpoint.get('is_structured_pruned'):  # new format for pruned models
+                pruned_module = checkpoint.get('pruned_model')
+                if pruned_module is None:
+                    raise RuntimeError('Pruned checkpoint is missing the pruned_model object.')
+                pruned_module = pruned_module.to(self.device)
+                self.netG = self.model_to_device(pruned_module)
+                bare_net = self.get_bare_model(self.netG)
+                bare_net.load_state_dict(checkpoint['params'], strict=True)
+
+                if self.opt_train['E_decay'] > 0:
+                    ema_model = checkpoint.get('ema_model')
+                    if ema_model is not None:
+                        ema_model = ema_model.to(self.device).eval()
+                        self.netE = ema_model
+                    else:
+                        ema_params = checkpoint.get('ema_params')
+                        if ema_params is not None:
+                            ema_clone = copy.deepcopy(bare_net).cpu()
+                            ema_clone.load_state_dict(ema_params, strict=True)
+                            self.netE = ema_clone.to(self.device).eval()
+                        else:
+                            self.netE = copy.deepcopy(bare_net).to(self.device).eval()
+                return
+
+            # Legacy/basic checkpoints fall back to default loader
+            if isinstance(checkpoint, dict) and 'params' in checkpoint:
+                state_dict = checkpoint['params']
+            else:
+                state_dict = checkpoint
+            bare_net = self.get_bare_model(self.netG)
+            bare_net.load_state_dict(state_dict, strict=self.opt_train['G_param_strict'])
         load_path_E = self.opt['path']['pretrained_netE']
         if self.opt_train['E_decay'] > 0:
             if load_path_E is not None:
