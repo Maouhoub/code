@@ -23,7 +23,7 @@
   },
   "structured_pruning": {
     "total_pruning_ratio": 0.7,
-    "pruning_steps": 1,
+    "pruning_steps": 2,
     "schedule_weight_start": 0.6,
     "schedule_weight_end": 1.0,
     "target_psnr_drop": 0.2,
