@@ -340,8 +340,14 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
             return model
 
         # Default sensitivity for modules that were not explicitly categorized
+        #for module in prunable_modules:
+        #    module_sensitivity.setdefault(module, 1.0)
+        
+        layer_pruning_ratios = {}
         for module in prunable_modules:
-            module_sensitivity.setdefault(module, 1.0)
+            sensitivity = module_sensitivity.get(module, 1.0)
+            layer_ratio = min(pruning_ratio * sensitivity, layer_ratio_cap)
+            layer_pruning_ratios[module] = layer_ratio
 
         # Initialize pruner with SwinIR-specific settings
         pruner = tp.pruner.MagnitudePruner(
@@ -356,18 +362,14 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         )
 
         # Apply pruning
-        layer_pruning_ratios = {}
-        for module in prunable_modules:
-            sensitivity = module_sensitivity.get(module, 1.0)
-            layer_ratio = min(pruning_ratio * sensitivity, layer_ratio_cap)
-            layer_pruning_ratios[module] = layer_ratio
+    
 
         try:
-            pruner.step(pruning_ratios=layer_pruning_ratios)
-        except TypeError:
-            # Older Torch-Pruning versions may not accept pruning_ratios argument
-            print("Torch-Pruning version does not support layer-wise ratios; using global ratio instead.")
             pruner.step()
+        except Exception as e:
+            # Older Torch-Pruning versions may not accept pruning_ratios argument
+            print(f"Torch-Pruning step failed  : {e}")
+            #pruner.step()
 
         # Validate PixelShuffle divisibility after pruning
         try:
