@@ -1013,12 +1013,12 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         
         # Remove pruning masks to make pruning permanent
         model_network = model.netG if hasattr(model, 'netG') else model
-        model_network = remove_pruning_masks(model_network)
+        #model_network = remove_pruning_masks(model_network)
         
         # Update the model
         if hasattr(model, 'netG'):
             model.netG = model_network
-
+        '''
         # Build safe checkpoint for reloading the pruned network
         pruned_module = model_network.module if hasattr(model_network, 'module') else model_network
         module_snapshot = copy.deepcopy(pruned_module).cpu().eval()
@@ -1046,7 +1046,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         pruned_state_path = os.path.join(opt['path']['models'], f"netG_pruned_checkpoint_step{current_step}.pth")
         torch.save(pruned_checkpoint, pruned_state_path)
         print(f" Torch checkpoint saved: {pruned_state_path}")
-        
+        '''
         # Save the model using the framework's native routine as well
         try:
             model.save(current_step)
