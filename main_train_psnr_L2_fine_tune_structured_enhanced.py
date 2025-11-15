@@ -221,7 +221,7 @@ def validate_pixelshuffle_constraints(model, scale_factor=2):
         print("? All PixelShuffle constraints satisfied")
         return True
 
-def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio_cap=0.25, native_layer_ratio_cap=0.2):
+def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pruning_ratio=0.1, layer_ratio_cap=0.25, native_layer_ratio_cap=0.2):
     """
     Apply structured channel pruning using Torch-Pruning library.
     """
@@ -285,7 +285,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                 if 'mlp.fc1' in lower_name:
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
                 elif 'mlp.fc2' in lower_name:
                     fc2_names.append(name)
                 else:
@@ -300,19 +300,19 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                 if 'conv_first' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
                     continue
 
                 if 'conv_after_body' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
                     continue
 
                 if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
                     out_channel_groups[module] = max(pixelshuffle_group_size, 1)
                     continue
 
@@ -323,7 +323,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                 if embed_dim is not None and module.out_channels == embed_dim:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = get_layer_sensitivity(name)
+                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
                     continue
 
                 ignored_modules.add(module)
@@ -850,9 +850,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         if TORCH_PRUNING_AVAILABLE:
             network = apply_structured_pruning_torch_pruning(
                 network,
+                cached_layer_sensitivities,
                 pruning_ratio=current_pruning_ratio,
                 layer_ratio_cap=max_layer_ratio,
-                native_layer_ratio_cap=native_max_layer_ratio,
+                native_layer_ratio_cap=native_max_layer_ratio
             )
         else:
             network = apply_structured_pruning_native(
