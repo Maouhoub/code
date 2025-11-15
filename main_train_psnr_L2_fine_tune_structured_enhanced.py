@@ -17,7 +17,7 @@ import math
 import argparse
 import random
 import numpy as np
-import logging
+import json
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch
@@ -77,6 +77,22 @@ from models.select_model import define_Model
 # =============================================================================
 # Helper Functions for Model Analysis and Pruning
 # =============================================================================
+
+
+def load_cached_layer_sensitivities():
+    cache_path = os.path.join('layer_sensitivities', 'layer_sensitivity_cache.json')
+    if not os.path.isfile(cache_path):
+        return {}
+
+    try:
+        with open(cache_path, 'r') as f:
+            data = json.load(f)
+        layers = data.get('layers', {})
+        return {name: info.get('scaled', 1.0) for name, info in layers.items()}
+    except Exception as e:
+        print(f"Failed to load cached layer sensitivities: {e}")
+        return {}
+
 
 def calculate_model_stats(model, input_shape=(3, 64, 64), device='cpu'):
     """
@@ -350,6 +366,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
             layer_pruning_ratios[module] = layer_ratio
 
         # Initialize pruner with SwinIR-specific settings
+        print(f"Using per layer ratios {layer_pruning_ratios}")
         pruner = tp.pruner.MagnitudePruner(
             model,
             example_inputs,
@@ -358,6 +375,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
             root_module_types=[nn.Conv2d, nn.Linear],
             ignored_layers=ignored_layers,
             unwrapped_parameters=unwrapped_parameters,
+            pruning_ratio_dict=layer_pruning_ratios,
             out_channel_groups=out_channel_groups if out_channel_groups else None,
         )
 
@@ -748,6 +766,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print(" BASELINE MODEL EVALUATION (BEFORE PRUNING)")
     print("="*80)
     
+    cached_layer_sensitivities = load_cached_layer_sensitivities()
+
+
     # Get device
     device = next(model.parameters()).device
     print(f"Device: {device}")
