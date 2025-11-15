@@ -225,6 +225,7 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
     """
     Apply structured channel pruning using Torch-Pruning library.
     """
+    print("Layer sensitivities : ", layer_pruning_ratios)
     if not TORCH_PRUNING_AVAILABLE:
         print("Torch-Pruning not available, falling back to PyTorch native pruning")
         return apply_structured_pruning_native(model, pruning_ratio, max_layer_ratio=native_layer_ratio_cap)
@@ -260,7 +261,7 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
 
         for name, module in model.named_modules():
             lower_name = name.lower()
-
+            print("Handling : ", lower_name)
             if 'attn' in lower_name or 'relative_position' in lower_name:
                 ignored_modules.add(module)
                 continue
