@@ -55,7 +55,7 @@ class ModelPlain(ModelBase):
         print("Model Path : ", load_path_G)
         if load_path_G is not None:
             print('Loading model for G [{:s}] ...'.format(load_path_G))
-            self.load_network(load_path_G, self.netG, strict=self.opt_train['G_param_strict'], param_key='params')
+            self.load_network(load_path_G, self.netG, strict=self.opt_train['G_param_strict'], param_key='params',with_definition = self.opt_train['with_definition'])
         load_path_E = self.opt['path']['pretrained_netE']
         if self.opt_train['E_decay'] > 0:
             if load_path_E is not None:

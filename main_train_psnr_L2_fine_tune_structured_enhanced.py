@@ -1074,8 +1074,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 
                 f.write(f"- {metric}: {baseline:.4f} ? {pruned:.4f} ({change_pct:+.2f}%)\n")
 
-            f.write(f"\nSaved pruned model (full): {pruned_model_full_path}\n")
-            f.write(f"Saved pruned checkpoint  : {pruned_state_path}\n")
+            #f.write(f"\nSaved pruned model (full): {pruned_model_full_path}\n")
+            #f.write(f"Saved pruned checkpoint  : {pruned_state_path}\n")
         
         print(f' Results summary saved to: {results_path}')
         
