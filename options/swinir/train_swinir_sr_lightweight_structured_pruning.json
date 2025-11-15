@@ -19,7 +19,7 @@
   "fine_tune": {
     "L2_ft_epochs": 50,
     "early_stop_patience": 5,
-    "early_stop_min_delta": 0.06
+    "early_stop_min_delta": 0
   },
   "structured_pruning": {
     "total_pruning_ratio": 0.7,
