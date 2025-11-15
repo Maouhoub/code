@@ -261,7 +261,6 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
 
         for name, module in model.named_modules():
             lower_name = name.lower()
-            print("Handling : ", lower_name)
             if 'attn' in lower_name or 'relative_position' in lower_name:
                 ignored_modules.add(module)
                 continue
@@ -905,9 +904,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             patience = fine_tune_epochs
         min_delta = opt['fine_tune'].get('early_stop_min_delta', 0.0) or 0.0
         best_val_psnr = -float('inf')
-        best_val_ssim = -float('inf')
         epochs_without_improvement = 0
         stop_early = False
+        best_state = None
 
         print(f"Fine-tuning epochs: {fine_tune_epochs}")
         if opt['rank'] == 0:
@@ -955,8 +954,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
                 if epoch_psnr >= best_val_psnr + min_delta:
                     best_val_psnr = epoch_psnr
-                    best_val_ssim = epoch_ssim
                     epochs_without_improvement = 0
+                    best_state = copy.deepcopy(model.netG.state_dict())
                 else:
                     epochs_without_improvement += 1
                     print(f"    No PSNR improvement ({epochs_without_improvement}/{patience})")
@@ -970,8 +969,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 stop_tensor = torch.tensor([1 if stop_early else 0], device=device_for_sync, dtype=torch.int)
                 dist.broadcast(stop_tensor, src=0)
                 stop_early = bool(stop_tensor.item())
-
             if stop_early:
+                if best_state is not None:
+                    model.netG.load_state_dict(best_state, strict=False)
                 break
 
         # =============================================================================

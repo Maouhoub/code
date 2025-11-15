@@ -17,8 +17,8 @@
     "pretrained_netE": null
   },
   "fine_tune": {
-    "L2_ft_epochs": 10,
-    "early_stop_patience": 6,
+    "L2_ft_epochs": 50,
+    "early_stop_patience": 5,
     "early_stop_min_delta": 0.06
   },
   "structured_pruning": {
@@ -29,7 +29,7 @@
     "target_psnr_drop": 0.2,
     "max_layer_ratio": 0.25,
     "native_max_layer_ratio": 0.2,
-    "max_eval_images": 22
+    "max_eval_images": 30
   },
   "datasets": {
     "train": {
@@ -111,6 +111,7 @@
     "init_type": "default"
   },
   "train": {
+    "with_definition": false,
     "G_lossfn_type": "l1",
     "G_lossfn_weight": 1.0,
     "E_decay": 0,
