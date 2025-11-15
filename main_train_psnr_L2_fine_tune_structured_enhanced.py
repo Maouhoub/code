@@ -962,6 +962,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                     if epochs_without_improvement >= patience:
                         print("    Early stopping triggered: validation PSNR plateaued")
                         stop_early = True
+                model.save(current_step)
 
             # Sync early stopping decision across processes if needed
             if opt['dist'] and dist.is_available() and dist.is_initialized():
@@ -972,7 +973,6 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             if stop_early:
                 if best_state is not None:
                     model.netG.load_state_dict(best_state, strict=False)
-                    model.save(current_step)
                 break
 
         # =============================================================================
