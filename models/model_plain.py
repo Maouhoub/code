@@ -89,11 +89,15 @@ class ModelPlain(ModelBase):
     # save model / optimizer(optional)
     # ----------------------------------------
     def save(self, iter_label):
-        self.save_network(self.save_dir, self.netG, 'G', iter_label)
-        if self.opt_train['E_decay'] > 0:
-            self.save_network(self.save_dir, self.netE, 'E', iter_label)
-        if self.opt_train['G_optimizer_reuse']:
-            self.save_optimizer(self.save_dir, self.G_optimizer, 'optimizerG', iter_label)
+        try:
+            self.netG.zero_grad() 
+            self.save_network(self.save_dir, self.netG, 'G', iter_label)
+            if self.opt_train['E_decay'] > 0:
+                self.save_network(self.save_dir, self.netE, 'E', iter_label)
+            if self.opt_train['G_optimizer_reuse']:
+                self.save_optimizer(self.save_dir, self.G_optimizer, 'optimizerG', iter_label)
+        except Exception as e:
+            print(f' Error saving model with framework saver: {e}')
 
     # ----------------------------------------
     # define loss

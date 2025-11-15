@@ -972,6 +972,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             if stop_early:
                 if best_state is not None:
                     model.netG.load_state_dict(best_state, strict=False)
+                    model.save(current_step)
                 break
 
         # =============================================================================
@@ -1073,12 +1074,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f" Torch checkpoint saved: {pruned_state_path}")
         '''
         # Save the model using the framework's native routine as well
-        try:
-            model.netG.zero_grad() 
-            model.save(current_step)
-            print(' Model saved successfully via framework save()!')
-        except Exception as e:
-            print(f' Error saving model with framework saver: {e}')
+        model.save(current_step)
+
         
         # Save additional information
         results_path = os.path.join(opt['path']['models'], 'pruning_results.txt')
