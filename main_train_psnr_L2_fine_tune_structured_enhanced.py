@@ -1049,6 +1049,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         '''
         # Save the model using the framework's native routine as well
         try:
+            model.netG.zero_grad() 
             model.save(current_step)
             print(' Model saved successfully via framework save()!')
         except Exception as e:
