@@ -1061,6 +1061,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             progress_cache['pruning_iteration'] = pruning_iteration
             progress_cache['last_psnr'] = current_psnr
             save_pruning_cache(cache_path, pruning_cache)
+            model.save(current_step)
             
             # Check if we should continue pruning
             if current_psnr < target_psnr_threshold:
