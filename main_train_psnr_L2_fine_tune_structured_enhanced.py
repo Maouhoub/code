@@ -94,6 +94,32 @@ def load_cached_layer_sensitivities():
         return {}
 
 
+def load_pruning_cache(cache_path):
+    """Load structured pruning cache JSON if it exists."""
+    if not cache_path or not os.path.isfile(cache_path):
+        return {}
+
+    try:
+        with open(cache_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load pruning cache ({cache_path}): {e}")
+        return {}
+
+
+def save_pruning_cache(cache_path, data):
+    """Persist structured pruning cache JSON to disk."""
+    if not cache_path:
+        return
+
+    try:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Could not save pruning cache ({cache_path}): {e}")
+
+
 def calculate_model_stats(model, input_shape=(3, 64, 64), device='cpu'):
     """
     Calculate FLOPs and parameter count for the model.
@@ -768,15 +794,37 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     
     cached_layer_sensitivities = load_cached_layer_sensitivities()
 
+    cache_path = os.path.join(opt['path']['models'], 'structured_pruning_cache.json')
+    pruning_cache = load_pruning_cache(cache_path)
+    baseline_cache = pruning_cache.get('baseline')
+    if baseline_cache is None:
+        baseline_cache = {}
+        pruning_cache['baseline'] = baseline_cache
+    progress_cache = pruning_cache.get('progress')
+    if progress_cache is None:
+        progress_cache = {}
+        pruning_cache['progress'] = progress_cache
+    cache_dirty = False
+
+    print("USING ITERATION PREVIOUS CACHE !!", pruning_cache)
+
 
     # Get device
     device = next(model.parameters()).device
     print(f"Device: {device}")
     
     # Calculate baseline statistics
-    input_shape = (3, 64, 64)  # Adjust based on your input size
-    baseline_stats = calculate_model_stats(model.netG if hasattr(model, 'netG') else model, 
-                                         input_shape, device)
+
+    #Adjust HERE START
+    input_shape = (3, 64, 64)
+    target_network = model.netG if hasattr(model, 'netG') else model
+    baseline_stats = baseline_cache.get('stats')
+    if not baseline_stats:
+        baseline_stats = calculate_model_stats(target_network, input_shape, device)
+        baseline_cache['stats'] = baseline_stats
+        cache_dirty = True
+    else:
+        print(" Using cached baseline statistics")
     
     print(f"Baseline Parameters: {baseline_stats['total_params']:,}")
     print(f"Baseline FLOPs: {baseline_stats['flops']:,}")
@@ -793,17 +841,36 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # =============================================================================
     # Baseline Testing (Before Pruning)
     # =============================================================================
-    print("\nEvaluating baseline model...")
+    baseline_psnr = baseline_cache.get('psnr')
+    baseline_ssim = baseline_cache.get('ssim')
+    baseline_inference_time = baseline_cache.get('inference_time')
     if opt['rank'] == 0:
-        baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(
-            model, test_loader, opt, current_step, "baseline", max_images=max_eval_images)
-        results['PSNR (dB)']['baseline'] = baseline_psnr
-        results['SSIM']['baseline'] = baseline_ssim
-        results['Inference Time (s)']['baseline'] = baseline_inference_time
-        
-        print(f"Baseline PSNR: {baseline_psnr:.4f} dB")
-        print(f"Baseline SSIM: {baseline_ssim:.4f}")
-        print(f"Baseline Inference Time: {baseline_inference_time:.4f} s")
+        if baseline_psnr is None or baseline_ssim is None or baseline_inference_time is None:
+            print("\nEvaluating baseline model...")
+            baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(
+                model, test_loader, opt, current_step, "baseline", max_images=max_eval_images)
+            baseline_cache['psnr'] = baseline_psnr
+            baseline_cache['ssim'] = baseline_ssim
+            baseline_cache['inference_time'] = baseline_inference_time
+            cache_dirty = True
+            print(f"Baseline PSNR: {baseline_psnr:.4f} dB")
+            print(f"Baseline SSIM: {baseline_ssim:.4f}")
+            print(f"Baseline Inference Time: {baseline_inference_time:.4f} s")
+        else:
+            print("\nUsing cached baseline evaluation...")
+            print(f"Baseline PSNR: {baseline_psnr:.4f} dB")
+            print(f"Baseline SSIM: {baseline_ssim:.4f}")
+            print(f"Baseline Inference Time: {baseline_inference_time:.4f} s")
+    baseline_psnr = baseline_cache.get('psnr', 0.0)
+    baseline_ssim = baseline_cache.get('ssim', 0.0)
+    baseline_inference_time = baseline_cache.get('inference_time', 0.0)
+    results['PSNR (dB)']['baseline'] = baseline_psnr
+    results['SSIM']['baseline'] = baseline_ssim
+    results['Inference Time (s)']['baseline'] = baseline_inference_time
+    if opt['rank'] == 0 and cache_dirty:
+        save_pruning_cache(cache_path, pruning_cache)
+        cache_dirty = False
+    #Adjust HERE END
 
     # =============================================================================
     # Structured Channel Pruning with Progressive Fine-tuning
@@ -829,8 +896,13 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print(f"PSNR threshold: {target_psnr_threshold} dB")
     print(f"Layer ratio caps | Torch-Pruning: {max_layer_ratio:.2%}, Native: {native_max_layer_ratio:.2%}")
     
-    current_psnr = baseline_psnr if opt['rank'] == 0 else 1000  # Initialize with baseline
-    pruning_iteration = 0
+    completed_iterations = int(progress_cache.get('pruning_iteration', 0))
+    resume_psnr = progress_cache.get('last_psnr')
+    if opt['rank'] == 0:
+        current_psnr = resume_psnr if resume_psnr is not None else baseline_psnr
+    else:
+        current_psnr = 1000
+    pruning_iteration = completed_iterations
     
     # Progressive structured pruning loop
     while pruning_iteration < pruning_steps and current_psnr > target_psnr_threshold:
@@ -987,6 +1059,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             print(f"  SSIM: {current_ssim:.4f}")
             print(f"  Inference Time: {current_inference_time:.4f} s")
             print(f"  PSNR vs Baseline: {current_psnr - baseline_psnr:+.4f} dB")
+            progress_cache['pruning_iteration'] = pruning_iteration
+            progress_cache['last_psnr'] = current_psnr
+            save_pruning_cache(cache_path, pruning_cache)
             
             # Check if we should continue pruning
             if current_psnr < target_psnr_threshold:
