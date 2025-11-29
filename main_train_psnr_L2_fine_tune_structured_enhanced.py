@@ -109,6 +109,7 @@ def load_pruning_cache(cache_path):
 
 def save_pruning_cache(cache_path, data):
     """Persist structured pruning cache JSON to disk."""
+    print("Saving structured pruning cache ! ")
     if not cache_path:
         return
 
@@ -1034,8 +1035,6 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                     if epochs_without_improvement >= patience:
                         print("    Early stopping triggered: validation PSNR plateaued")
                         stop_early = True
-                model.save(current_step)
-
             # Sync early stopping decision across processes if needed
             if opt['dist'] and dist.is_available() and dist.is_initialized():
                 device_for_sync = next(model.parameters()).device
@@ -1150,6 +1149,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         '''
         # Save the model using the framework's native routine as well
         model.save(current_step)
+        progress_cache['current_step'] = current_step
+        save_pruning_cache(cache_path, pruning_cache)
 
         
         # Save additional information
