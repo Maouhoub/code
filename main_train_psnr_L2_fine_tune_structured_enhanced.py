@@ -648,6 +648,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--dist', default=False)
 
+
+    print("Effective Options file used is : ", parser.parse_args().opt)
     opt = option.parse(parser.parse_args().opt, is_train=True)
     opt['dist'] = parser.parse_args().dist
 
