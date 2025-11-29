@@ -9,7 +9,7 @@
   "scale": 2,
   "n_channels": 3,
   "path": {
-    "root": "superresolution",
+    "root": "/content/drive/MyDrive/superresolution",
     "pretrained_netG": "/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth",
     "models": "/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models",
     "images": "/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/images",
