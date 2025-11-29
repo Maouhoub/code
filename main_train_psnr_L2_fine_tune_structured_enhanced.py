@@ -1149,7 +1149,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         '''
         # Save the model using the framework's native routine as well
         model.save(current_step)
-        progress_cache['current_step'] = current_step
+        progress_cache['pruning_iteration'] = pruning_iteration
+        progress_cache['last_psnr'] = current_psnr
         save_pruning_cache(cache_path, pruning_cache)
 
         
