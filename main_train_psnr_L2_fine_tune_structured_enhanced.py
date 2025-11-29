@@ -702,6 +702,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     max_layer_ratio = structured_opt.get('max_layer_ratio', 0.25)
     native_max_layer_ratio = structured_opt.get('native_max_layer_ratio', 0.2)
     max_eval_images = int(structured_opt.get('max_eval_images', 22))
+    full_eval_images = int(structured_opt.get('full_eval_images', 100))
 
     if pruning_steps <= 0:
         raise ValueError("structured_pruning.pruning_steps must be a positive integer")
@@ -851,7 +852,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         if baseline_psnr is None or baseline_ssim is None or baseline_inference_time is None:
             print("\nEvaluating baseline model...")
             baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(
-                model, test_loader, opt, current_step, "baseline", max_images=max_eval_images)
+                model, test_loader, opt, current_step, "baseline", max_images=full_eval_images)
             baseline_cache['psnr'] = baseline_psnr
             baseline_cache['ssim'] = baseline_ssim
             baseline_cache['inference_time'] = baseline_inference_time
@@ -1054,7 +1055,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"\n Evaluating model after pruning iteration {pruning_iteration}...")
         if opt['rank'] == 0:
             current_psnr, current_ssim, current_inference_time = evaluate_model(
-                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=max_eval_images)
+                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=full_eval_images)
             
             print(f"  PSNR: {current_psnr:.4f} dB")
             print(f"  SSIM: {current_ssim:.4f}")
@@ -1098,7 +1099,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                                         shuffle=False, num_workers=1,
                                         drop_last=False, pin_memory=True)
             psnr, ssim, inference_time = evaluate_model(
-                model, testing_loader, opt, current_step, f"pruned_testset_{ds['name']}", max_images=max_eval_images // 2)
+                model, testing_loader, opt, current_step, f"pruned_testset_{ds['name']}", max_images=full_eval_images)
             print(f" Test Set {ds['name']} - PSNR: {psnr:.4f} dB | SSIM: {ssim:.4f} | Inference Time: {inference_time:.4f} s")
         
         # Print final comparison table
