@@ -29,7 +29,7 @@
     "target_psnr_drop": 0.2,
     "max_layer_ratio": 0.25,
     "native_max_layer_ratio": 0.2,
-    "max_eval_images": 22
+    "max_eval_images": 40
   },
   "datasets": {
     "train": {
