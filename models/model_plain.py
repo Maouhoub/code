@@ -91,6 +91,7 @@ class ModelPlain(ModelBase):
     def save(self, iter_label):
         try:
             self.netG.zero_grad() 
+            print("Saving to directory ", self.save_dir)
             self.save_network(self.save_dir, self.netG, 'G', iter_label)
             if self.opt_train['E_decay'] > 0:
                 self.save_network(self.save_dir, self.netE, 'E', iter_label)

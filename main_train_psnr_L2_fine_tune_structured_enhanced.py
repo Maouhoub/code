@@ -544,7 +544,7 @@ def print_results_table(results):
     print("      Negative changes in PSNR/SSIM indicate quality degradation")
     print("="*100)
 
-def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=22):
+def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=22, save_images=False):
     """
     Comprehensive model evaluation function.
     Returns PSNR, SSIM, and average inference time.
@@ -565,6 +565,8 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
     except StopIteration:
         timing_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+    interesting_save_indices = {1, 2, 16, 28}
+
     with torch.no_grad():
         for test_data in test_loader:
             idx += 1
@@ -577,12 +579,15 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
             image_name_ext = os.path.basename(test_data['L_path'][0])
             img_name, ext = os.path.splitext(image_name_ext)
 
-            # Create output directory
-            if suffix:
-                img_dir = os.path.join(opt['path']['images'], f"{img_name}_{suffix}")
-            else:
-                img_dir = os.path.join(opt['path']['images'], img_name)
-            util.mkdir(img_dir)
+            should_save = save_images and idx in interesting_save_indices
+
+            # Create output directory only when saving selected images
+            if should_save:
+                if suffix:
+                    img_dir = os.path.join(opt['path']['images'], f"{img_name}_{suffix}")
+                else:
+                    img_dir = os.path.join(opt['path']['images'], img_name)
+                util.mkdir(img_dir)
 
             # Forward pass with timing
             model.feed_data(test_data)
@@ -606,9 +611,10 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
             E_img = util.tensor2uint(visuals['E'])
             H_img = util.tensor2uint(visuals['H'])
 
-            # Save estimated image
-            save_img_path = os.path.join(img_dir, f'{img_name}_{current_step}.png')
-            util.imsave(E_img, save_img_path)
+            # Save estimated image for selected indices
+            if should_save:
+                save_img_path = os.path.join(img_dir, f'{img_name}_{current_step}.png')
+                util.imsave(E_img, save_img_path)
 
             # Calculate PSNR
             current_psnr = util.calculate_psnr(E_img, H_img, border=border)
@@ -852,7 +858,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         if baseline_psnr is None or baseline_ssim is None or baseline_inference_time is None:
             print("\nEvaluating baseline model...")
             baseline_psnr, baseline_ssim, baseline_inference_time = evaluate_model(
-                model, test_loader, opt, current_step, "baseline", max_images=full_eval_images)
+                model, test_loader, opt, current_step, "baseline", max_images=full_eval_images, save_images=True)
             baseline_cache['psnr'] = baseline_psnr
             baseline_cache['ssim'] = baseline_ssim
             baseline_cache['inference_time'] = baseline_inference_time
@@ -1055,7 +1061,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"\n Evaluating model after pruning iteration {pruning_iteration}...")
         if opt['rank'] == 0:
             current_psnr, current_ssim, current_inference_time = evaluate_model(
-                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=full_eval_images)
+                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=full_eval_images, save_images=True)
             
             print(f"  PSNR: {current_psnr:.4f} dB")
             print(f"  SSIM: {current_ssim:.4f}")
@@ -1099,7 +1105,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                                         shuffle=False, num_workers=1,
                                         drop_last=False, pin_memory=True)
             psnr, ssim, inference_time = evaluate_model(
-                model, testing_loader, opt, current_step, f"pruned_testset_{ds['name']}", max_images=full_eval_images)
+                model, testing_loader, opt, current_step, f"pruned_testset_{ds['name']}", max_images=full_eval_images, save_images=True)
             print(f" Test Set {ds['name']} - PSNR: {psnr:.4f} dB | SSIM: {ssim:.4f} | Inference Time: {inference_time:.4f} s")
         
         # Print final comparison table
