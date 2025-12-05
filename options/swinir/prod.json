@@ -18,7 +18,7 @@
   },
   "fine_tune": {
     "L2_ft_epochs": 50,
-    "early_stop_patience": 5,
+    "early_stop_patience": 3,
     "early_stop_min_delta": 0
   },
   "structured_pruning": {
@@ -29,7 +29,7 @@
     "target_psnr_drop": 0.2,
     "max_layer_ratio": 0.25,
     "native_max_layer_ratio": 0.2,
-    "max_eval_images": 40
+    "max_eval_images": 30
   },
   "datasets": {
     "train": {
