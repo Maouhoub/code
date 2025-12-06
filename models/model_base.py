@@ -163,8 +163,7 @@ class ModelBase():
         if with_definition:
             print("Loading with definition from", load_path)
             network = torch.load(load_path, weights_only=False)
-            print("Total params:", sum(p.numel() for p in network.parameters()))
-            print("Trainable params:", sum(p.numel() for p in network.parameters() if p.requires_grad))
+            return network
         else:
             network = self.get_bare_model(network)
             if strict:
