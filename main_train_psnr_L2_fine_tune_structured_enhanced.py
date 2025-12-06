@@ -58,6 +58,7 @@ from utils.utils_dist import get_dist_info, init_dist
 
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
+from models.network_swinir import SwinIR
 
 '''
 # =============================================================================
@@ -641,6 +642,8 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
 
 
 def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_pruning.json'):
+
+    torch.serialization.add_safe_globals([SwinIR])
 
     '''
     # ----------------------------------------
