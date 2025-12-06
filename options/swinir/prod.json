@@ -111,7 +111,7 @@
     "init_type": "default"
   },
   "train": {
-    "with_definition": false,
+    "with_definition": true,
     "G_lossfn_type": "l1",
     "G_lossfn_weight": 1.0,
     "E_decay": 0,
