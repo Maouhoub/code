@@ -161,6 +161,7 @@ class ModelBase():
     # ----------------------------------------
     def load_network(self, load_path, network, strict=True, param_key='params', with_definition = False):
         if with_definition:
+            print("Loading with definition from", load_path)
             network = torch.load(load_path, weights_only=False)
         else:
             network = self.get_bare_model(network)
