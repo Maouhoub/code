@@ -850,19 +850,6 @@ class SwinIR(nn.Module):
         return flops
 
 
-    # Allow torch.load(weights_only=True) to unpickle SwinIR checkpoints safely when they contain full modules.
-    try:
-        from torch.serialization import add_safe_globals as _add_safe_globals
-    except ImportError:
-        _add_safe_globals = None
-
-    if _add_safe_globals is not None:
-        try:
-            _add_safe_globals([SwinIR])
-        except Exception:
-            pass
-
-
 if __name__ == '__main__':
     upscale = 4
     window_size = 8
