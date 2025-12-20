@@ -299,7 +299,11 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    out_channel_groups[module] = 16
+                    # Use largest group size that divides current channels
+                    if module.out_features % 16 == 0:
+                        out_channel_groups[module] = 16
+                    elif module.out_features % 8 == 0:
+                        out_channel_groups[module] = 8
                 elif 'mlp.fc2' in lower_name:
                     fc2_names.append(name)
                 else:
@@ -315,14 +319,16 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    out_channel_groups[module] = 8
+                    if module.out_channels % 8 == 0:
+                        out_channel_groups[module] = 8
                     continue
 
                 if 'conv_after_body' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    out_channel_groups[module] = 8
+                    if module.out_channels % 8 == 0:
+                        out_channel_groups[module] = 8
                     continue
 
                 if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
@@ -340,7 +346,8 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    out_channel_groups[module] = 8
+                    if module.out_channels % 8 == 0:
+                        out_channel_groups[module] = 8
                     continue
 
                 ignored_modules.add(module)
@@ -396,7 +403,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
             layer_pruning_ratios[module] = layer_ratio
 
         try:
-            pruner.step(pruning_ratios=layer_pruning_ratios)
+            pruner.step()
         except TypeError:
             # Older Torch-Pruning versions may not accept pruning_ratios argument
             print("Torch-Pruning version does not support layer-wise ratios; using global ratio instead.")
