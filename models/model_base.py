@@ -182,6 +182,7 @@ class ModelBase():
                     state_dict[key] = param_old
                 network.load_state_dict(state_dict, strict=True)
                 del state_dict_old, state_dict
+            return network
 
     # ----------------------------------------
     # save the state_dict of the optimizer
