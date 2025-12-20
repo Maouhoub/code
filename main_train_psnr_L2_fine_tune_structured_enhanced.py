@@ -52,6 +52,14 @@ except ImportError:
         print("? No FLOPs calculation available")
         PTFLOPS_AVAILABLE = False
 
+# Import cleanup function for saving models
+try:
+    from utils.utils_modelsummary import remove_flops_counting_methods
+    FLOPS_CLEANUP_AVAILABLE = True
+except ImportError:
+    FLOPS_CLEANUP_AVAILABLE = False
+    print("Warning: remove_flops_counting_methods not available")
+
 from utils import utils_logger
 from utils import utils_image as util
 from utils import utils_option as option
@@ -1063,6 +1071,11 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             progress_cache['pruning_iteration'] = pruning_iteration
             progress_cache['last_psnr'] = current_psnr
             save_pruning_cache(cache_path, pruning_cache)
+            
+            # Clean FLOPs methods before saving checkpoint
+            if FLOPS_CLEANUP_AVAILABLE and hasattr(model, 'netG'):
+                model.netG = remove_flops_counting_methods(model.netG)
+            
             model.save(current_step)
             
             # Check if we should continue pruning
@@ -1117,6 +1130,11 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         # Remove pruning masks to make pruning permanent
         model_network = model.netG if hasattr(model, 'netG') else model
         #model_network = remove_pruning_masks(model_network)
+        
+        # Remove FLOPs counting methods before saving to prevent AttributeError on load
+        if FLOPS_CLEANUP_AVAILABLE:
+            print(' Cleaning FLOPs counting methods before saving...')
+            model_network = remove_flops_counting_methods(model_network)
         
         # Update the model
         if hasattr(model, 'netG'):

@@ -175,6 +175,38 @@ def add_flops_counting_methods(net_main_module):
     return net_main_module
 
 
+def remove_flops_counting_methods(net_main_module):
+    """
+    Remove dynamically added FLOPs counting methods before saving model.
+    This is the inverse of add_flops_counting_methods().
+    Prevents AttributeError when loading saved models.
+    """
+    # Remove methods added to the main module
+    attrs_to_remove = ['start_flops_count', 'stop_flops_count', 
+                       'reset_flops_count', 'compute_average_flops_cost']
+    
+    for attr in attrs_to_remove:
+        if hasattr(net_main_module, attr):
+            delattr(net_main_module, attr)
+    
+    # Remove variables and hooks from all submodules
+    def cleanup_module(module):
+        if hasattr(module, '__flops__'):
+            delattr(module, '__flops__')
+        if hasattr(module, '__flops_handle__'):
+            try:
+                module.__flops_handle__.remove()
+            except:
+                pass
+            delattr(module, '__flops_handle__')
+        if hasattr(module, '__batch_counter__'):
+            delattr(module, '__batch_counter__')
+    
+    net_main_module.apply(cleanup_module)
+    
+    return net_main_module
+
+
 def compute_average_flops_cost(self):
     """
     A method that will be available after add_flops_counting_methods() is called
