@@ -251,7 +251,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
             example_inputs = example_inputs.cuda()
 
         # Define importance metric (L1 norm for channels)
-        imp = tp.importance.MagnitudeImportance(p=1)  # L1 norm
+        imp = tp.importance.MagnitudeImportance(p=2)  # L1 norm
 
         # Identify modules for structured pruning while protecting critical components
         unwrapped_parameters = []

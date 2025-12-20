@@ -38,7 +38,8 @@ class ModelPlain(ModelBase):
     # initialize training
     # ----------------------------------------
     def init_train(self):
-        self.load()                           # load model
+        self.load()
+        print("Model loaded", self.netG)                           # load model
         self.netG.train()                     # set training mode,for BN
         self.define_loss()                    # define loss
         self.define_optimizer()               # define optimizer
