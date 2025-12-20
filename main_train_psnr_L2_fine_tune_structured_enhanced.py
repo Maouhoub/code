@@ -250,8 +250,8 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         if next(model.parameters()).is_cuda:
             example_inputs = example_inputs.cuda()
 
-        # Define importance metric (L1 norm for channels)
-        imp = tp.importance.MagnitudeImportance(p=2)  # L1 norm
+        # Define importance metric (L2 norm for channels)
+        imp = tp.importance.MagnitudeImportance(p=2)  # L2 norm
 
         # Identify modules for structured pruning while protecting critical components
         unwrapped_parameters = []
@@ -298,6 +298,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
+                    out_channel_groups[module] = 16
                 elif 'mlp.fc2' in lower_name:
                     fc2_names.append(name)
                 else:
@@ -313,19 +314,21 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
+                    out_channel_groups[module] = 8
                     continue
 
                 if 'conv_after_body' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
+                    out_channel_groups[module] = 8
                     continue
 
                 if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    out_channel_groups[module] = max(pixelshuffle_group_size, 1)
+                    out_channel_groups[module] = max(pixelshuffle_group_size, 8)
                     continue
 
                 if any(keyword in lower_name for keyword in ['patch_embed', 'patch_unembed']):
@@ -336,6 +339,7 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
+                    out_channel_groups[module] = 8
                     continue
 
                 ignored_modules.add(module)
