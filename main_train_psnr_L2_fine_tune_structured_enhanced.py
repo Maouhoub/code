@@ -25,6 +25,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import time
 import copy
+import traceback
 from collections import defaultdict
 
 # Import Torch-Pruning for structured pruning
@@ -410,6 +411,8 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         return model
     except Exception as e:
         print(f"Error with Torch-Pruning: {e}")
+        print("Full stack trace:")
+        traceback.print_exc()
         print("SwinIR attention mechanism is complex for Torch-Pruning, falling back to PyTorch native pruning")
         return apply_structured_pruning_native(model, pruning_ratio, max_layer_ratio=native_layer_ratio_cap)
 
