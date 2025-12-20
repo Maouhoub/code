@@ -166,10 +166,8 @@ class ModelBase():
             return network
         else:
             network = self.get_bare_model(network)
-            print("network : ###", network)
             if strict:
                 state_dict = torch.load(load_path, weights_only=True)
-                print("state_dict : ###", state_dict)
                 if param_key in state_dict.keys():
                     state_dict = state_dict[param_key]
                 network.load_state_dict(state_dict, strict=strict)
