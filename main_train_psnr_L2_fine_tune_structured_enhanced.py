@@ -79,20 +79,6 @@ from models.select_model import define_Model
 # =============================================================================
 
 
-def load_cached_layer_sensitivities():
-    cache_path = os.path.join('layer_sensitivities', 'layer_sensitivity_cache.json')
-    if not os.path.isfile(cache_path):
-        return {}
-
-    try:
-        with open(cache_path, 'r') as f:
-            data = json.load(f)
-        layers = data.get('layers', {})
-        return {name: info.get('scaled', 1.0) for name, info in layers.items()}
-    except Exception as e:
-        print(f"Failed to load cached layer sensitivities: {e}")
-        return {}
-
 
 def load_pruning_cache(cache_path):
     """Load structured pruning cache JSON if it exists."""
@@ -248,11 +234,10 @@ def validate_pixelshuffle_constraints(model, scale_factor=2):
         print("? All PixelShuffle constraints satisfied")
         return True
 
-def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pruning_ratio=0.1, layer_ratio_cap=0.25, native_layer_ratio_cap=0.2):
+def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio_cap=0.25, native_layer_ratio_cap=0.2):
     """
     Apply structured channel pruning using Torch-Pruning library.
     """
-    print("Layer sensitivities : ", cached_layer_sensitivities)
     if not TORCH_PRUNING_AVAILABLE:
         print("Torch-Pruning not available, falling back to PyTorch native pruning")
         return apply_structured_pruning_native(model, pruning_ratio, max_layer_ratio=native_layer_ratio_cap)
@@ -312,7 +297,7 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
                 if 'mlp.fc1' in lower_name:
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
-                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                 elif 'mlp.fc2' in lower_name:
                     fc2_names.append(name)
                 else:
@@ -327,19 +312,19 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
                 if 'conv_first' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     continue
 
                 if 'conv_after_body' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     continue
 
                 if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     out_channel_groups[module] = max(pixelshuffle_group_size, 1)
                     continue
 
@@ -350,7 +335,7 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
                 if embed_dim is not None and module.out_channels == embed_dim:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
-                    module_sensitivity[module] = cached_layer_sensitivities.get(lower_name, 1)
+                    module_sensitivity[module] = get_layer_sensitivity(name)
                     continue
 
                 ignored_modules.add(module)
@@ -383,17 +368,10 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
             return model
 
         # Default sensitivity for modules that were not explicitly categorized
-        #for module in prunable_modules:
-        #    module_sensitivity.setdefault(module, 1.0)
-        
-        layer_pruning_ratios = {}
         for module in prunable_modules:
-            sensitivity = module_sensitivity.get(module, 1.0)
-            layer_ratio = min(pruning_ratio * sensitivity, layer_ratio_cap)
-            layer_pruning_ratios[module] = layer_ratio
+            module_sensitivity.setdefault(module, 1.0)
 
         # Initialize pruner with SwinIR-specific settings
-        print(f"Using per layer ratios {layer_pruning_ratios}")
         pruner = tp.pruner.MagnitudePruner(
             model,
             example_inputs,
@@ -402,19 +380,22 @@ def apply_structured_pruning_torch_pruning(model, cached_layer_sensitivities, pr
             root_module_types=[nn.Conv2d, nn.Linear],
             ignored_layers=ignored_layers,
             unwrapped_parameters=unwrapped_parameters,
-            pruning_ratio_dict=layer_pruning_ratios,
             out_channel_groups=out_channel_groups if out_channel_groups else None,
         )
 
         # Apply pruning
-    
+        layer_pruning_ratios = {}
+        for module in prunable_modules:
+            sensitivity = module_sensitivity.get(module, 1.0)
+            layer_ratio = min(pruning_ratio * sensitivity, layer_ratio_cap)
+            layer_pruning_ratios[module] = layer_ratio
 
         try:
-            pruner.step()
-        except Exception as e:
+            pruner.step(pruning_ratios=layer_pruning_ratios)
+        except TypeError:
             # Older Torch-Pruning versions may not accept pruning_ratios argument
-            print(f"Torch-Pruning step failed  : {e}")
-            #pruner.step()
+            print("Torch-Pruning version does not support layer-wise ratios; using global ratio instead.")
+            pruner.step()
 
         # Validate PixelShuffle divisibility after pruning
         try:
@@ -802,7 +783,6 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print(" BASELINE MODEL EVALUATION (BEFORE PRUNING)")
     print("="*80)
     
-    cached_layer_sensitivities = load_cached_layer_sensitivities()
 
     cache_path = os.path.join(opt['path']['models'], 'structured_pruning_cache.json')
     pruning_cache = load_pruning_cache(cache_path)
@@ -932,7 +912,6 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         if TORCH_PRUNING_AVAILABLE:
             network = apply_structured_pruning_torch_pruning(
                 network,
-                cached_layer_sensitivities,
                 pruning_ratio=current_pruning_ratio,
                 layer_ratio_cap=max_layer_ratio,
                 native_layer_ratio_cap=native_max_layer_ratio
