@@ -307,11 +307,8 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     mlp_fc1_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    # Use largest group size that divides current channels
-                    if module.out_features % 8 == 0:
-                        out_channel_groups[module] = 8
-                    elif module.out_features % 8 == 0:
-                        out_channel_groups[module] = 8
+                    # Force grouping to 4 to ensure 60 -> 56, 48, etc. (multiples of 8)
+                    out_channel_groups[module] = 4
                 elif 'mlp.fc2' in lower_name:
                     fc2_names.append(name)
                 else:
@@ -327,23 +324,25 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    if module.out_channels % 8 == 0:
-                        out_channel_groups[module] = 8
+                    # Force grouping to 4 to ensure 60 -> 56, 48, etc.
+                    out_channel_groups[module] = 4
                     continue
 
                 if 'conv_after_body' in lower_name:
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    if module.out_channels % 8 == 0:
-                        out_channel_groups[module] = 8
+                    # Force grouping to 4 to ensure 60 -> 56, 48, etc.
+                    out_channel_groups[module] = 4
                     continue
 
                 if any(keyword in lower_name for keyword in ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']):
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    out_channel_groups[module] = max(pixelshuffle_group_size, 8)
+                    # PixelShuffle requires divisor of scale^2 (4), and we want multiple of 8. 
+                    # LCM(4, 8) is 8. But if starting at 60, use 4 to hit 56.
+                    out_channel_groups[module] = 4
                     continue
 
                 if any(keyword in lower_name for keyword in ['patch_embed', 'patch_unembed']):
@@ -354,8 +353,8 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     prunable_modules.add(module)
                     conv_prunable_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
-                    if module.out_channels % 8 == 0:
-                        out_channel_groups[module] = 8
+                    # Force grouping to 4 to ensure 60 -> 56, 48, etc.
+                    out_channel_groups[module] = 4
                     continue
 
                 ignored_modules.add(module)
