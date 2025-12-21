@@ -17,12 +17,12 @@
     "pretrained_netE": null
   },
   "fine_tune": {
-    "L2_ft_epochs": 15,
-    "early_stop_patience": 5,
+    "L2_ft_epochs": 50,
+    "early_stop_patience": 4,
     "early_stop_min_delta": 0
   },
   "structured_pruning": {
-    "total_pruning_ratio": 1.0,
+    "total_pruning_ratio": 0.7,
     "pruning_steps": 18,
     "schedule_weight_start": 0.6,
     "schedule_weight_end": 1.0,

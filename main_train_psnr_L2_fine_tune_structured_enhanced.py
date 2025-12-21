@@ -308,8 +308,8 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                     mlp_fc1_names.append(name)
                     module_sensitivity[module] = get_layer_sensitivity(name)
                     # Use largest group size that divides current channels
-                    if module.out_features % 16 == 0:
-                        out_channel_groups[module] = 16
+                    if module.out_features % 8 == 0:
+                        out_channel_groups[module] = 8
                     elif module.out_features % 8 == 0:
                         out_channel_groups[module] = 8
                 elif 'mlp.fc2' in lower_name:
