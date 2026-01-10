@@ -184,6 +184,8 @@ def main(json_path='options/swinir/prod.json'):
 
         ds_opt['n_channels'] = opt['n_channels']
         ds_opt['scale'] = opt['scale']
+        # Fix for KeyError: 'H_size' - Required by DatasetSR init
+        ds_opt['H_size'] = opt['datasets']['train'].get('H_size', 128) if 'train' in opt['datasets'] else 128
         
         try:
             psnr, ssim, inf_time = evaluate_model_on_dataset(model, ds_opt, opt)
