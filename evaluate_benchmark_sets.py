@@ -174,10 +174,12 @@ def main(json_path='options/swinir/prod.json'):
     
     for ds_opt in benchmark_datasets:
         # Validate paths exist before trying to load
+        print("Evaluating on dataset", ds_opt)
         if 'dataroot_H' in ds_opt and not os.path.exists(ds_opt['dataroot_H']):
              # Try to guess or skip
              # In colab environments, paths might not exist locally if running locally
              # Warning only
+             print("Passing !")
              pass
 
         ds_opt['n_channels'] = opt['n_channels']
