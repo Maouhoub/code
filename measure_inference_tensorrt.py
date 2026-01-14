@@ -40,7 +40,8 @@ def export_to_onnx(model, input_tensor, onnx_path):
         export_params=True,
         opset_version=13,
         do_constant_folding=True,
-        input_names=['input'], output_names=['output']
+        input_names=['input'], output_names=['output'],
+         dynamo=False  
     )
 
 def build_trt_engine(onnx_path, engine_path):
