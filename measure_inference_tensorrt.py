@@ -45,7 +45,15 @@ def export_to_onnx(model, input_tensor, onnx_path):
 
 def build_trt_engine(onnx_path, engine_path):
     print(f"\n[TensorRT] Building FP16 engine...")
-    builder = trt.Builder(TRT_LOGGER)
+    try:
+        builder = trt.Builder(TRT_LOGGER)
+    except TypeError:
+         print("\n[ERROR] TensorRT Builder initialization failed!")
+         print("Likely cause: Driver/Library mismatch (Error Code 35).")
+         print("FIX: In Colab, uninstall tensorrt, then run:")
+         print("!pip install tensorrt --extra-index-url https://pypi.nvidia.com")
+         return None
+
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
     config = builder.create_builder_config()
     parser = trt.OnnxParser(network, TRT_LOGGER)
