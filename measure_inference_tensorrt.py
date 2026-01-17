@@ -102,10 +102,9 @@ def benchmark_trt(engine_buffer, input_tensor, num_runs=500, num_warmup=50):
     output_shape = context.get_tensor_shape(output_name)
     output_tensor = torch.empty(tuple(output_shape), device='cuda', dtype=torch.float32)
 
-    # Bindings
-    bindings = [None] * 2
-    bindings[input_idx] = input_tensor.data_ptr()
-    bindings[output_idx] = output_tensor.data_ptr()
+    # Set tensor addresses (required for execute_async_v3)
+    context.set_tensor_address(input_name, input_tensor.data_ptr())
+    context.set_tensor_address(output_name, output_tensor.data_ptr())
 
     stream = torch.cuda.current_stream().cuda_stream
 
