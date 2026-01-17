@@ -30,7 +30,8 @@ def benchmark_pytorch(model, input_tensor, num_runs=500, num_warmup=50):
             times.append(end - start)
 
     avg_ms = np.mean(times) * 1000
-    print(f"[PyTorch] Avg Latency: {avg_ms:.4f} ms")
+    fps = 1000 / avg_ms
+    print(f"[PyTorch] Avg Latency: {avg_ms:.4f} ms | {fps:.2f} FPS")
     return avg_ms
 
 def export_to_onnx(model, input_tensor, onnx_path):
@@ -124,7 +125,8 @@ def benchmark_trt(engine_buffer, input_tensor, num_runs=500, num_warmup=50):
         times.append(end - start)
 
     avg_ms = np.mean(times) * 1000
-    print(f"[TensorRT] Avg Latency: {avg_ms:.4f} ms")
+    fps = 1000 / avg_ms
+    print(f"[TensorRT] Avg Latency: {avg_ms:.4f} ms | {fps:.2f} FPS")
     return avg_ms
 
 def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_pruning.json'):
@@ -163,24 +165,35 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
 
 
+    # 2. PyTorch Latency
+    pt_time = benchmark_pytorch(netG, dummy_input)
+
     # 3. Export ONNX & Build TRT
     onnx_file = "temp_swinir.onnx"
     trt_file = "temp_swinir.engine"
     
     export_to_onnx(netG, dummy_input, onnx_file)
     trt_engine = build_trt_engine(onnx_file, trt_file)
-    pt_time = benchmark_pytorch(netG, dummy_input)
+
     # 4. TRT Latency
+    trt_time = 0.0
     if trt_engine:
         trt_time = benchmark_trt(trt_engine, dummy_input)
-        
-        print(f"\nResults:")
-        print(f"PyTorch: {pt_time:.4f} ms")
-        print(f"TensorRT: {trt_time:.4f} ms")
         
         # Cleanup
         if os.path.exists(onnx_file): os.remove(onnx_file)
         if os.path.exists(trt_file): os.remove(trt_file)
+
+    # Summary
+    print("\n" + "="*50)
+    print("       BENCHMARK SUMMARY (Warmup=50, Runs=500)")
+    print("="*50)
+    print(f"Resolution : {input_size}")
+    print(f"PyTorch    : {pt_time:.4f} ms  | {1000/pt_time:.2f} FPS")
+    if trt_engine:
+        print(f"TensorRT   : {trt_time:.4f} ms  | {1000/trt_time:.2f} FPS")
+        print(f"Speedup    : {pt_time/trt_time:.2f}x")
+    print("="*50 + "\n")
 
     
 if __name__ == '__main__':
