@@ -162,8 +162,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
     print(f"Benchmarking Resolution: {input_size}")
 
-    # 2. PyTorch Latency
-    pt_time = benchmark_pytorch(netG, dummy_input)
+
 
     # 3. Export ONNX & Build TRT
     onnx_file = "temp_swinir.onnx"
@@ -171,7 +170,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     
     export_to_onnx(netG, dummy_input, onnx_file)
     trt_engine = build_trt_engine(onnx_file, trt_file)
-
+    pt_time = benchmark_pytorch(netG, dummy_input)
     # 4. TRT Latency
     if trt_engine:
         trt_time = benchmark_trt(trt_engine, dummy_input)
@@ -184,5 +183,6 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         if os.path.exists(onnx_file): os.remove(onnx_file)
         if os.path.exists(trt_file): os.remove(trt_file)
 
+    
 if __name__ == '__main__':
     main()
