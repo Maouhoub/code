@@ -3,8 +3,8 @@ import torch
 import tensorrt as trt
 import numpy as np
 import os
-import torch_pruning as tp
-from torch import nn
+
+
 from models.select_model import define_Model
 from utils import utils_option as option
 from utils.utils_dist import get_dist_info, init_dist
@@ -95,28 +95,7 @@ def count_kernels(engine_bytes, input_shape):
     
     return profiler.kernel_count
 
-# Copying the pruning function from your training script to replicate exact pruning
-def apply_pruning(model, pruning_ratio=0.1):
-    print(f"Applying structured pruning (Ratio: {pruning_ratio})...")
-    
-    # Simplified version of what's in main_train... assuming Torch-Pruning is installed
-    example_inputs = torch.randn(1, 3, 64, 64).cuda()
-    imp = tp.importance.MagnitudeImportance(p=2)
-    
-    ignored_layers = []
-    
-    # Simple strategy: prune Conv2d and Linear
-    pruner = tp.pruner.MagnitudePruner(
-        model,
-        example_inputs,
-        importance=imp,
-        pruning_ratio=pruning_ratio,
-        root_module_types=[nn.Conv2d, nn.Linear],
-        ignored_layers=ignored_layers,
-    )
-    
-    pruner.step()
-    return model
+
 
 def main():
     json_path = 'options/swinir/train_swinir_sr_lightweight_structured_pruning.json'
@@ -165,7 +144,7 @@ def main():
     # If you have a pruned checkpoint, change path below:
     # opt['path']['pretrained_netG'] = 'path_to_pruned.pth'
     # Otherwise, we simulate it here:
-    netG_pruned = apply_pruning(netG_pruned, pruning_ratio=0.5) # Use ratio 0.5 or whatever you used
+   
     
     export_onnx(netG_pruned, input_shape, "temp_pruned.onnx")
     pruned_engine = build_engine("temp_pruned.onnx")
