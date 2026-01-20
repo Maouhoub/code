@@ -61,19 +61,28 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     opt['rank'], opt['world_size'] = get_dist_info()
 
     # Load Model
-    init_iter_G, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
-    if init_path_G is not None:
-        opt['path']['pretrained_netG'] = init_path_G
-    
-    start_epoch = 0
-    current_step = 0
 
-    opt = option.dict_to_nonedict(opt)
-    model = define_Model(opt)
-    model.init_train()
+    root_path = '/content/drive/MyDrive/superresolution_v4/swinir_sr_lightweight_x2/models'
+
+    import glob
+    # Get list of all files matching the pattern, including full path
+    files = glob.glob(os.path.join(root_path, '*_G.pth'))
     
-    # Inspect
-    inspect_alignment(model.netG)
+    # Sort files by modification time descending (newest first)
+    files.sort(key=os.path.getmtime, reverse=True)
+
+    print("Found checkpoints (ordered by modified date):")
+    for f in files:
+        print(" Inspecting" , f)
+        if f is not None:
+            opt['path']['pretrained_netG'] = f
+        
+        opt = option.dict_to_nonedict(opt)
+        model = define_Model(opt)
+        model.init_train()
+        
+        # Inspect
+        inspect_alignment(model.netG)
 
 if __name__ == '__main__':
     main()
