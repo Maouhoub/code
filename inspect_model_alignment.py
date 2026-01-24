@@ -178,7 +178,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
     # Load Model
 
-    root_path = '/content/drive/MyDrive/superresolution_v4/swinir_sr_lightweight_x2/models'
+    root_path = '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models'
 
     import glob
     # Get list of all files matching the pattern, including full path
