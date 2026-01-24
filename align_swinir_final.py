@@ -1,0 +1,281 @@
+import argparse
+import torch
+import torch.nn as nn
+import numpy as np
+import os
+import copy
+import random
+
+# Exact imports from the context file
+from utils import utils_logger
+from utils import utils_image as util
+from utils import utils_option as option
+from utils.utils_dist import get_dist_info, init_dist
+from models.select_model import define_Model
+
+# Import Torch-Pruning for Dependency Analysis
+try:
+    import torch_pruning as tp
+except ImportError:
+    print("Error: Torch-Pruning is required for dependency graph analysis.")
+    exit(1)
+
+def get_pad_amount(channels, align=32):
+    if channels % align == 0:
+        return 0
+    return (align - (channels % align))
+
+def pad_module_weights(module, pad_amount, dim=0):
+    """
+    Pad weight/bias with ZEROS.
+    dim=0 (Output channels), dim=1 (Input channels)
+    """
+    # 1. Handle Conv2d / Linear
+    if isinstance(module, (nn.Conv2d, nn.Linear)):
+        weight = module.weight.data
+        pad_shape = list(weight.shape)
+        pad_shape[dim] = pad_amount
+        
+        # Zero padding
+        padding = torch.zeros(pad_shape, dtype=weight.dtype, device=weight.device)
+        new_weight = torch.cat([weight, padding], dim=dim)
+        module.weight = nn.Parameter(new_weight)
+        
+        # Pad Bias (only if padding output channels/features)
+        if dim == 0 and module.bias is not None:
+            bias = module.bias.data
+            bias_padding = torch.zeros((pad_amount,), dtype=bias.dtype, device=bias.device)
+            new_bias = torch.cat([bias, bias_padding], dim=0)
+            module.bias = nn.Parameter(new_bias)
+
+        # Update attributes
+        if isinstance(module, nn.Conv2d):
+            if dim == 0: module.out_channels += pad_amount
+            if dim == 1: module.in_channels += pad_amount
+        elif isinstance(module, nn.Linear):
+            if dim == 0: module.out_features += pad_amount
+            if dim == 1: module.in_features += pad_amount
+
+    # 2. Handle LayerNorm (CRITICAL FIX)
+    elif isinstance(module, nn.LayerNorm):
+        # Update normalized_shape
+        old_shape = module.normalized_shape
+        # Handle int vs tuple shape
+        if isinstance(old_shape, int):
+            new_shape = (old_shape + pad_amount,)
+        else:
+            new_shape = list(old_shape)
+            new_shape[-1] += pad_amount
+            new_shape = tuple(new_shape)
+        module.normalized_shape = new_shape
+            
+        # Pad Weight
+        if module.weight is not None:
+            weight = module.weight.data
+            padding = torch.zeros((pad_amount,), dtype=weight.dtype, device=weight.device)
+            new_weight = torch.cat([weight, padding], dim=0)
+            module.weight = nn.Parameter(new_weight)
+            
+        # Pad Bias
+        if module.bias is not None:
+            bias = module.bias.data
+            bias_padding = torch.zeros((pad_amount,), dtype=bias.dtype, device=bias.device)
+            new_bias = torch.cat([bias, bias_padding], dim=0)
+            module.bias = nn.Parameter(new_bias)
+
+def is_target_layer(name, module):
+    """
+    Check if this layer matches the pruning criteria from the original script.
+    """
+    lower_name = name.lower()
+    
+    # 1. MLP Expansion
+    if 'mlp.fc1' in lower_name:
+        return True
+        
+    # 2. Body / Residual Stream Root
+    if 'conv_first' in lower_name:
+        return True
+        
+    # 3. Aggregation
+    if 'conv_after_body' in lower_name:
+        return True
+        
+    # 4. Upsampling / Reconstruction
+    upsample_keywords = ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']
+    if any(k in lower_name for k in upsample_keywords):
+        return True
+        
+    return False
+
+def align_model_to_warp(model, example_inputs, align=32):
+    print(f"\n{'='*60}")
+    print(f" ALIGNING PRUNED LAYERS TO {align} (A100 WARP OPTIMIZATION)")
+    print(f"{'='*60}")
+
+    # 1. Collect unwrapped parameters (from context or warning) to Fix Warning
+    unwrapped_parameters = []
+    for name, param in model.named_parameters():
+        if 'relative_position_bias_table' in name or 'attn_mask' in name:
+            unwrapped_parameters.append((name, param))
+    
+    # 2. Build Graph with unwrapped_parameters
+    DG = tp.DependencyGraph()
+    DG.build_dependency(model, example_inputs=example_inputs, unwrapped_parameters=unwrapped_parameters)
+
+    visited_modules = set()
+    padded_count = 0
+    
+    modules_list = list(model.named_modules())
+    
+    for name, module in modules_list:
+        if module in visited_modules:
+            continue
+            
+        if isinstance(module, (nn.Conv2d, nn.Linear)):
+            # Skip output layer (keep RGB 3 channels)
+            if isinstance(module, nn.Conv2d) and module.out_channels == 3:
+                continue
+
+            # CRITICAL: Only process layers that were targets of the pruning script
+            if not is_target_layer(name, module):
+                continue
+
+            # Determine specifics
+            if isinstance(module, nn.Conv2d):
+                pruning_fn = tp.prune_conv_out_channels
+                current_ch = module.out_channels
+            else:
+                pruning_fn = tp.prune_linear_out_channels
+                current_ch = module.out_features
+            
+            # Check alignment
+            pad_val = get_pad_amount(current_ch, align)
+            
+            if pad_val == 0:
+                # Mark group as visited
+                try:
+                    group = DG.get_pruning_group(module, pruning_fn, idxs=[0])
+                    for dep, _ in group:
+                        visited_modules.add(dep.target.module)
+                except:
+                    pass
+                continue
+                
+            print(f"Padding Group via {name}: {current_ch} -> {current_ch + pad_val} (+{pad_val})")
+            
+            # Get dependency group
+            try:
+                group = DG.get_pruning_group(module, pruning_fn, idxs=[0])
+            except Exception as e:
+                print(f"  Warning: Could not get dependency group for {name}. Skipping. ({e})")
+                continue
+            
+            # Apply Zero-Padding to the whole group
+            for dep, _ in group:
+                target_module = dep.target.module
+                visited_modules.add(target_module)
+                
+                # Determine dimension (In vs Out) based on handler name
+                handler_name = str(dep.handler)
+                pad_dim = 0 # Default (e.g. BatchNorm, LayerNorm usually treated as output-like)
+                
+                if 'in_channel' in handler_name or 'in_feature' in handler_name:
+                    pad_dim = 1
+                elif 'out_channel' in handler_name or 'out_feature' in handler_name:
+                    pad_dim = 0
+                
+                # Apply Pad
+                try:
+                    pad_module_weights(target_module, pad_val, pad_dim)
+                except Exception as e:
+                    print(f"    Failed to pad {target_module}: {e}")
+            
+            padded_count += 1
+            
+    print(f"Alignment Complete. Modified {padded_count} groups.")
+    return model
+
+def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_pruning.json'):
+    # ----------------------------------------
+    # Step--1 from original script
+    # ----------------------------------------
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--opt', type=str, default=json_path, help='Path to option JSON file.')
+    parser.add_argument('--launcher', default='pytorch', help='job launcher')
+    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--dist', default=False)
+
+    print("Effective Options file used is : ", parser.parse_args().opt)
+    # Using is_train=True to ensure compatibility with model definition
+    opt = option.parse(parser.parse_args().opt, is_train=True) 
+    opt['dist'] = parser.parse_args().dist
+
+    # Distributed settings
+    if opt['dist']:
+        init_dist('pytorch')
+    opt['rank'], opt['world_size'] = get_dist_info()
+
+    if opt['rank'] == 0:
+        util.mkdirs((path for key, path in opt['path'].items() if 'pretrained' not in key))
+
+    # Update opt - Finding Last Checkpoint
+    init_iter_G, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
+    if init_path_G is not None:
+        print(f"Loading checkpoint from: {init_path_G}")
+        opt['path']['pretrained_netG'] = init_path_G
+    
+    current_step = init_iter_G
+
+    opt = option.dict_to_nonedict(opt)
+
+    # ----------------------------------------
+    # Step--3 (initialize model) from original script
+    # ----------------------------------------
+    model = define_Model(opt)
+    model.init_train()
+
+    # Get the actual network
+    netG = model.netG if hasattr(model, 'netG') else model
+    
+    # 3. Sanity Check (Before)
+    device = next(netG.parameters()).device
+    dummy_input = torch.randn(1, 3, 64, 64).to(device)
+    
+    print("Running initial sanity check...")
+    with torch.no_grad():
+        output_original = netG(dummy_input)
+
+    # 4. Align Model (Zero Padding) with Filtering
+    align_model_to_warp(netG, dummy_input, align=32)
+
+    # 5. Sanity Check (After)
+    print("Running post-alignment verification...")
+    with torch.no_grad():
+        output_aligned = netG(dummy_input)
+
+    # Calculate difference
+    diff = torch.abs(output_original - output_aligned).max().item()
+    print(f"\nVerification Diff (Should be small): {diff:.8f}")
+    if diff > 1e-1:
+        print("WARNING: Large difference. LayerNorm shift might be significant.")
+    else:
+        print("SUCCESS: Output preserved (within reasonable bound).")
+
+    # 6. Save Aligned Model using Exact Mechanism
+    print("\n" + "="*80)
+    print(f" SAVING FINAL ALIGNED MODEL (Step {current_step})")
+    print("="*80)
+    
+    # Update the model in the wrapper if needed
+    if hasattr(model, 'netG'):
+        model.netG = netG
+    
+    # Use exact save mechanism from context file
+    model.save(current_step)
+    
+    print(f"Saved aligned model for step {current_step}")
+    print("="*80)
+
+if __name__ == '__main__':
+    main()
