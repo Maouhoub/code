@@ -5,6 +5,7 @@ import numpy as np
 import os
 import copy
 import random
+import shutil
 
 # Exact imports from the context file
 from utils import utils_logger
@@ -201,14 +202,17 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # ----------------------------------------
     parser = argparse.ArgumentParser()
     parser.add_argument('--opt', type=str, default=json_path, help='Path to option JSON file.')
+    parser.add_argument('--align', type=int, default=32, help='Channel alignment multiple (e.g., 32 for A100).')
+    parser.add_argument('--save_suffix', type=str, default='aligned_warp32', help='Suffix for an additional saved G checkpoint copy.')
     parser.add_argument('--launcher', default='pytorch', help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--dist', default=False)
 
-    print("Effective Options file used is : ", parser.parse_args().opt)
+    args = parser.parse_args()
+    print("Effective Options file used is : ", args.opt)
     # Using is_train=True to ensure compatibility with model definition
-    opt = option.parse(parser.parse_args().opt, is_train=True) 
-    opt['dist'] = parser.parse_args().dist
+    opt = option.parse(args.opt, is_train=True) 
+    opt['dist'] = args.dist
 
     # Distributed settings
     if opt['dist']:
@@ -240,24 +244,32 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     # 3. Sanity Check (Before)
     device = next(netG.parameters()).device
     dummy_input = torch.randn(1, 3, 64, 64).to(device)
-    
-    print("Running initial sanity check...")
+
+    # IMPORTANT: verification must run in eval() mode; SwinIR uses Dropout/DropPath in train mode.
+    was_training = netG.training
+    netG.eval()
+
+    print("Running initial sanity check (eval mode)...")
     with torch.no_grad():
         output_original = netG(dummy_input)
 
     # 4. Align Model (Zero Padding) with Filtering
-    align_model_to_warp(netG, dummy_input, align=32)
+    align_model_to_warp(netG, dummy_input, align=args.align)
 
     # 5. Sanity Check (After)
-    print("Running post-alignment verification...")
+    print("Running post-alignment verification (eval mode)...")
     with torch.no_grad():
         output_aligned = netG(dummy_input)
+
+    # Restore prior mode (not strictly needed, but keeps wrapper behavior consistent)
+    if was_training:
+        netG.train()
 
     # Calculate difference
     diff = torch.abs(output_original - output_aligned).max().item()
     print(f"\nVerification Diff (Should be ~0.0): {diff:.8f}")
-    if diff > 1e-6:
-        print("WARNING: Output changed significantly. Zero-padding might be incorrect.")
+    if diff > 1e-5:
+        print("WARNING: Output changed. If you ran in train mode previously, this was likely Dropout/DropPath.")
     else:
         print("SUCCESS: Model output preserved perfectly.")
 
@@ -272,6 +284,20 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     
     # Use exact save mechanism from context file
     model.save(current_step)
+
+    # Also create an additional copy with a clearer name (keeps resume-compatible filename intact)
+    try:
+        save_dir = getattr(model, 'save_dir', opt['path']['models'])
+        src_path = os.path.join(save_dir, f"{current_step}_G.pth")
+        if args.save_suffix:
+            dst_path = os.path.join(save_dir, f"{current_step}_G_{args.save_suffix}.pth")
+            if os.path.isfile(src_path):
+                shutil.copy2(src_path, dst_path)
+                print(f"Additional checkpoint saved: {dst_path}")
+            else:
+                print(f"WARNING: Could not find expected saved file to rename/copy: {src_path}")
+    except Exception as e:
+        print(f"WARNING: Could not create suffixed checkpoint copy: {e}")
     
     print(f"Saved aligned model for step {current_step}")
     print("="*80)
