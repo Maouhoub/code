@@ -4,9 +4,14 @@ import torch.nn as nn
 import numpy as np
 import os
 import copy
+import random
+
+# Exact imports from the context file
+from utils import utils_logger
+from utils import utils_image as util
 from utils import utils_option as option
-# We don't import define_Model blindly because we might need to load a Full Pruned Model object
-# from models.select_model import define_Model 
+from utils.utils_dist import get_dist_info, init_dist
+from models.select_model import define_Model
 
 # Import Torch-Pruning for Dependency Analysis
 try:
@@ -23,7 +28,6 @@ def get_pad_amount(channels, align=32):
 def pad_module_weights(module, pad_amount, dim=0):
     """
     Pad weight/bias with ZEROS.
-    This ensures the output is mathematically identical to the unpadded version.
     dim=0 (Output channels), dim=1 (Input channels)
     """
     if not isinstance(module, (nn.Conv2d, nn.Linear)):
@@ -61,12 +65,6 @@ def pad_module_weights(module, pad_amount, dim=0):
 def is_target_layer(name, module):
     """
     Check if this layer matches the pruning criteria from the original script.
-    Original criteria:
-    1. 'mlp.fc1'
-    2. 'conv_first'
-    3. 'conv_after_body'
-    4. keywords: ['upsample', 'pixelshuffle', 'conv_before_upsample', 'conv_up']
-    5. embed_dim match (we approximate this by ensuring we catch the Residual Body via dependencies of conv_first)
     """
     lower_name = name.lower()
     
@@ -162,69 +160,50 @@ def align_model_to_warp(model, example_inputs, align=32):
     print(f"Alignment Complete. Modified {padded_count} groups.")
     return model
 
-def load_pruned_model(opt):
-    """
-    Attempts to load the actual pruned model structure/weights.
-    Auto-detects full model (pickle) vs state_dict.
-    """
-    path = opt['path'].get('pretrained_netG', None)
-    if path is None:
-        # Try to find last checkpoint
-        _, path = option.find_last_checkpoint(opt['path']['models'], net_type='G')
-    print(f"Attempting to load pruned model from: {path}")
-    if path is None or not os.path.exists(path):
-        raise FileNotFoundError("Could not find a pruned model checkpoint in the specified path.")
-        
-    print(f"Loading checkpoint: {path}")
-    
-    # 1. Try loading as Full Model (Architecture + Weights)
-    # This is typical for 'netG_pruned_full_stepX.pth'
-    try:
-        model = torch.load(path)
-        if isinstance(model, nn.Module):
-            print("Successfully loaded Full Model object (Architecture included).")
-            return model
-    except Exception as e:
-        pass # Not a full model, likely state_dict
-
-    # 2. Try loading as Checkpoint Dict (Custom format from pruning script)
-    # 'pruned_checkpoint = {'model': module_snapshot, ...}'
-    try:
-        checkpoint = torch.load(path, map_location='cpu')
-        if isinstance(checkpoint, dict) and 'model' in checkpoint:
-             if isinstance(checkpoint['model'], nn.Module):
-                print("Successfully extracted Full Model from checkpoint dictionary.")
-                return checkpoint['model']
-    except:
-        pass
-
-    # 3. Fallback: Instantiate standard model and load state_dict
-    # WARNING: This will fail if dimensions don't match (which is expected for pruned models)
-    # We must assume the user provided a full model path if they want to load a pruned structure.
-    print("Warning: Could not load as Full Model. Attempting standard instantiation (May fail if shapes mismatch)...")
-    from models.select_model import define_Model
-    model = define_Model(opt)
-    model.init_train() # loads weights
-    return model.netG
-
 def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_pruning.json'):
-    # 1. Setup
+    # ----------------------------------------
+    # Step--1 (prepare opt) from original script
+    # ----------------------------------------
     parser = argparse.ArgumentParser()
-    parser.add_argument('--opt', type=str, default=json_path)
-    args = parser.parse_args()
-    opt = option.parse(args.opt, is_train=False) 
+    parser.add_argument('--opt', type=str, default=json_path, help='Path to option JSON file.')
+    parser.add_argument('--launcher', default='pytorch', help='job launcher')
+    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--dist', default=False)
+
+    print("Effective Options file used is : ", parser.parse_args().opt)
+    # Using is_train=True to ensure compatibility with model definition
+    opt = option.parse(parser.parse_args().opt, is_train=True) 
+    opt['dist'] = parser.parse_args().dist
+
+    # Distributed settings
+    if opt['dist']:
+        init_dist('pytorch')
+    opt['rank'], opt['world_size'] = get_dist_info()
+
+    if opt['rank'] == 0:
+        util.mkdirs((path for key, path in opt['path'].items() if 'pretrained' not in key))
+
+    # Update opt - Finding Last Checkpoint
+    init_iter_G, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
+    if init_path_G is not None:
+        print(f"Loading checkpoint from: {init_path_G}")
+        opt['path']['pretrained_netG'] = init_path_G
+    
+    current_step = init_iter_G
+
     opt = option.dict_to_nonedict(opt)
 
-    # 2. Load Model
-    # We use custom loader to handle pruned structures
-    netG = load_pruned_model(opt)
-    netG.eval()
-    
-    # Move to GPU
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    netG.to(device)
+    # ----------------------------------------
+    # Step--3 (initialize model) from original script
+    # ----------------------------------------
+    model = define_Model(opt)
+    model.init_train()
 
+    # Get the actual network
+    netG = model.netG if hasattr(model, 'netG') else model
+    
     # 3. Sanity Check (Before)
+    device = next(netG.parameters()).device
     dummy_input = torch.randn(1, 3, 64, 64).to(device)
     
     print("Running initial sanity check...")
@@ -247,20 +226,20 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     else:
         print("SUCCESS: Model output preserved perfectly.")
 
-    # 6. Save Aligned Model
-    # Determine save path
-    original_path = opt['path'].get('pretrained_netG', 'model.pth')
-    if os.path.isdir(original_path): original_path = os.path.join(original_path, 'model.pth')
+    # 6. Save Aligned Model using Exact Mechanism
+    print("\n" + "="*80)
+    print(" SAVING FINAL ALIGNED MODEL")
+    print("="*80)
     
-    dir_name = os.path.dirname(original_path)
-    base_name = os.path.basename(original_path)
-    save_path = os.path.join(dir_name, f"aligned32_{base_name}")
+    # Update the model in the wrapper if needed
+    if hasattr(model, 'netG'):
+        model.netG = netG
     
-    print(f"Saving aligned model to: {save_path}")
+    # Use exact save mechanism from context file
+    model.save(current_step)
     
-    # Save Full Model object to preserve the new padded structure
-    torch.save(netG, save_path)
-    print("Saved as Full Model (Architecture + Weights). Load using torch.load()")
+    print(f"Saved aligned model for step {current_step}")
+    print("="*80)
 
 if __name__ == '__main__':
     main()
