@@ -171,9 +171,9 @@ def load_pruned_model(opt):
     if path is None:
         # Try to find last checkpoint
         _, path = option.find_last_checkpoint(opt['path']['models'], net_type='G')
-        
+    print(f"Attempting to load pruned model from: {path}")
     if path is None or not os.path.exists(path):
-        raise FileNotFoundError(f"Could not find a pruned model checkpoint in: {opt['path']['models']}")
+        raise FileNotFoundError("Could not find a pruned model checkpoint in the specified path.")
         
     print(f"Loading checkpoint: {path}")
     
