@@ -42,13 +42,16 @@ def benchmark_pure_compute(model, input_size=(1, 3, 64, 64), device=None, num_wa
             end = time.perf_counter()
             times.append(end - start)
 
-    avg_time_ms = np.mean(times) * 1000
-    fps = 1.0 / np.mean(times)
+    avg_time_s = np.mean(times)
+    avg_time_ms = avg_time_s * 1000
+    variance_time_ms = np.var(times) * (1000 ** 2)
+    fps = 1.0 / avg_time_s
     
     print(f"-"*40)
     print(f"Batch Size    : {input_size[0]}")
     print(f"Resolution    : {input_size[2]}x{input_size[3]}")
     print(f"Avg Latency   : {avg_time_ms:.4f} ms")
+    print(f"Latency Var   : {variance_time_ms:.4f} ms^2")
     print(f"Avg FPS       : {fps:.2f}")
     print(f"-"*40)
 
