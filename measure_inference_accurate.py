@@ -10,7 +10,7 @@ from utils.utils_dist import get_dist_info, init_dist
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def benchmark_pure_compute(model, input_size=(1, 3, 64, 64), device=None, num_warmup=50, num_runs=500):
+def benchmark_pure_compute(model, input_size=(1, 3, 64, 64), device=None, num_warmup=50, num_runs=2000):
     model_network = model.netG if hasattr(model, 'netG') else model
     model_network.eval()
     
