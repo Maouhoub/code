@@ -65,6 +65,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     parser.add_argument('--launcher', default='pytorch', help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--dist', default=False)
+    parser.add_argument('--with_definition', default=False)
+
 
     args = parser.parse_args()
     
@@ -72,7 +74,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     
     opt = option.parse(args.opt, is_train=True)
     opt['dist'] = args.dist
-    
+    opt["train"]["with_definition"] = args.with_definition
+
+
     if opt['dist']:
         init_dist('pytorch')
     opt['rank'], opt['world_size'] = get_dist_info()
