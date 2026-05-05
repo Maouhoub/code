@@ -75,7 +75,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     opt = option.parse(args.opt, is_train=True)
     opt['dist'] = args.dist
     opt["train"]["with_definition"] = args.with_definition
-
+    print("OPTS ", opt)
 
     if opt['dist']:
         init_dist('pytorch')
