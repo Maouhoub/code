@@ -136,6 +136,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     parser.add_argument('--opt', type=str, default=json_path)
     parser.add_argument('--bs', type=int, default=1, help='Batch size')
     parser.add_argument('--size', type=int, default=64, help='Input image size')
+    parser.add_argument('--num_runs', type=int, default=500, help='Number of benchmark runs')
+    parser.add_argument('--num_warmup', type=int, default=50, help='Number of warmup runs')
     parser.add_argument('--launcher', default='pytorch', help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--dist', default=False)
@@ -168,7 +170,12 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
 
     # 2. PyTorch Latency
-    pt_time, pt_std = benchmark_pytorch(netG, dummy_input)
+    pt_time, pt_std = benchmark_pytorch(
+        netG,
+        dummy_input,
+        num_runs=args.num_runs,
+        num_warmup=args.num_warmup,
+    )
 
     # 3. Export ONNX & Build TRT
     onnx_file = "temp_swinir.onnx"
@@ -181,7 +188,12 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     trt_time = 0.0
     trt_std = 0.0
     if trt_engine:
-        trt_time, trt_std = benchmark_trt(trt_engine, dummy_input)
+        trt_time, trt_std = benchmark_trt(
+            trt_engine,
+            dummy_input,
+            num_runs=args.num_runs,
+            num_warmup=args.num_warmup,
+        )
         
         # Cleanup
         if os.path.exists(onnx_file): os.remove(onnx_file)
@@ -189,7 +201,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
     # Summary
     print("\n" + "="*50)
-    print("       BENCHMARK SUMMARY (Warmup=50, Runs=500)")
+    print(f"       BENCHMARK SUMMARY (Warmup={args.num_warmup}, Runs={args.num_runs})")
     print("="*50)
     print(f"Resolution : {input_size}")
     print(f"PyTorch    : {pt_time:.4f} ± {pt_std:.4f} ms  | {1000/pt_time:.2f} FPS")
