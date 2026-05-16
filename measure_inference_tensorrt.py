@@ -9,6 +9,7 @@ from models.select_model import define_Model
 from utils.utils_dist import get_dist_info, init_dist
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+BATCH_SIZES = [1, 2, 4, 8, 16, 32]
 
 def benchmark_pytorch(model, input_tensor, num_runs=500, num_warmup=50):
     print(f"\n[PyTorch] Starting benchmark...")
@@ -134,7 +135,6 @@ def benchmark_trt(engine_buffer, input_tensor, num_runs=500, num_warmup=50):
 def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_pruning.json'):
     parser = argparse.ArgumentParser()
     parser.add_argument('--opt', type=str, default=json_path)
-    parser.add_argument('--bs', type=int, default=1, help='Batch size')
     parser.add_argument('--size', type=int, default=64, help='Input image size')
     parser.add_argument('--num_runs', type=int, default=500, help='Number of benchmark runs')
     parser.add_argument('--num_warmup', type=int, default=50, help='Number of warmup runs')
@@ -163,54 +163,55 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     device = torch.device('cuda')
     netG.to(device)
 
-    # Dummy Input
-    input_size = (args.bs, 3, args.size, args.size)
-    dummy_input = torch.randn(input_size, device=device)
+    for batch_size in BATCH_SIZES:
+        # Dummy Input
+        input_size = (batch_size, 3, args.size, args.size)
+        dummy_input = torch.randn(input_size, device=device)
 
-    print(f"Benchmarking Resolution: {input_size}")
+        print(f"Benchmarking Resolution: {input_size}")
 
-
-
-    # 2. PyTorch Latency
-    pt_time, pt_std = benchmark_pytorch(
-        netG,
-        dummy_input,
-        num_runs=args.num_runs,
-        num_warmup=args.num_warmup,
-    )
-
-    # 3. Export ONNX & Build TRT
-    onnx_file = "temp_swinir.onnx"
-    trt_file = "temp_swinir.engine"
-    
-    export_to_onnx(netG, dummy_input, onnx_file)
-    trt_engine = build_trt_engine(onnx_file, trt_file)
-
-    # 4. TRT Latency
-    trt_time = 0.0
-    trt_std = 0.0
-    if trt_engine:
-        trt_time, trt_std = benchmark_trt(
-            trt_engine,
+        # 2. PyTorch Latency
+        pt_time, pt_std = benchmark_pytorch(
+            netG,
             dummy_input,
             num_runs=args.num_runs,
             num_warmup=args.num_warmup,
         )
-        
-        # Cleanup
-        if os.path.exists(onnx_file): os.remove(onnx_file)
-        if os.path.exists(trt_file): os.remove(trt_file)
 
-    # Summary
-    print("\n" + "="*50)
-    print(f"       BENCHMARK SUMMARY (Warmup={args.num_warmup}, Runs={args.num_runs})")
-    print("="*50)
-    print(f"Resolution : {input_size}")
-    print(f"PyTorch    : {pt_time:.4f} ± {pt_std:.4f} ms  | {1000/pt_time:.2f} FPS")
-    if trt_engine:
-        print(f"TensorRT   : {trt_time:.4f} ± {trt_std:.4f} ms  | {1000/trt_time:.2f} FPS")
-        print(f"Speedup    : {pt_time/trt_time:.2f}x")
-    print("="*50 + "\n")
+        # 3. Export ONNX & Build TRT
+        onnx_file = f"temp_swinir_bs{batch_size}.onnx"
+        trt_file = f"temp_swinir_bs{batch_size}.engine"
+
+        export_to_onnx(netG, dummy_input, onnx_file)
+        trt_engine = build_trt_engine(onnx_file, trt_file)
+
+        # 4. TRT Latency
+        trt_time = 0.0
+        trt_std = 0.0
+        if trt_engine:
+            trt_time, trt_std = benchmark_trt(
+                trt_engine,
+                dummy_input,
+                num_runs=args.num_runs,
+                num_warmup=args.num_warmup,
+            )
+
+        # Cleanup
+        if os.path.exists(onnx_file):
+            os.remove(onnx_file)
+        if os.path.exists(trt_file):
+            os.remove(trt_file)
+
+        # Summary
+        print("\n" + "="*50)
+        print(f"       BENCHMARK SUMMARY (Warmup={args.num_warmup}, Runs={args.num_runs})")
+        print("="*50)
+        print(f"Resolution : {input_size}")
+        print(f"PyTorch    : {pt_time:.4f} ± {pt_std:.4f} ms  | {1000/pt_time:.2f} FPS")
+        if trt_engine:
+            print(f"TensorRT   : {trt_time:.4f} ± {trt_std:.4f} ms  | {1000/trt_time:.2f} FPS")
+            print(f"Speedup    : {pt_time/trt_time:.2f}x")
+        print("="*50 + "\n")
 
     
 if __name__ == '__main__':
