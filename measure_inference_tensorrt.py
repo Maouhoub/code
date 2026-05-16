@@ -163,6 +163,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     device = torch.device('cuda')
     netG.to(device)
 
+    results = []
     for batch_size in BATCH_SIZES:
         # Dummy Input
         input_size = (batch_size, 3, args.size, args.size)
@@ -202,6 +203,16 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         if os.path.exists(trt_file):
             os.remove(trt_file)
 
+        results.append({
+            'batch_size': batch_size,
+            'resolution': input_size,
+            'pt_time': pt_time,
+            'pt_std': pt_std,
+            'trt_time': trt_time,
+            'trt_std': trt_std,
+            'has_trt': bool(trt_engine),
+        })
+
         # Summary
         print("\n" + "="*50)
         print(f"       BENCHMARK SUMMARY (Warmup={args.num_warmup}, Runs={args.num_runs})")
@@ -212,6 +223,37 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             print(f"TensorRT   : {trt_time:.4f} ± {trt_std:.4f} ms  | {1000/trt_time:.2f} FPS")
             print(f"Speedup    : {pt_time/trt_time:.2f}x")
         print("="*50 + "\n")
+
+    # Final grouped table by batch size
+    first_col_width = 16
+    col_width = 44
+    print("\n" + "=" * (first_col_width + col_width * len(BATCH_SIZES)))
+    header = "resolution".ljust(first_col_width)
+    for item in results:
+        header += str(item['batch_size']).center(col_width)
+    print(header)
+
+    resolution_row = "resolution".ljust(first_col_width)
+    for item in results:
+        resolution_row += str(item['resolution']).ljust(col_width)
+    print(resolution_row)
+
+    pytorch_row = "pytorch".ljust(first_col_width)
+    for item in results:
+        pytorch_row += (
+            f"{item['pt_time']:.4f} ± {item['pt_std']:.4f} ms  | {1000/item['pt_time']:.2f} FPS"
+        ).ljust(col_width)
+    print(pytorch_row)
+
+    tensorrt_row = "tensorrt".ljust(first_col_width)
+    for item in results:
+        if item['has_trt']:
+            trt_cell = f"{item['trt_time']:.4f} ± {item['trt_std']:.4f} ms  | {1000/item['trt_time']:.2f} FPS"
+        else:
+            trt_cell = "N/A"
+        tensorrt_row += trt_cell.ljust(col_width)
+    print(tensorrt_row)
+    print("=" * (first_col_width + col_width * len(BATCH_SIZES)) + "\n")
 
     
 if __name__ == '__main__':
