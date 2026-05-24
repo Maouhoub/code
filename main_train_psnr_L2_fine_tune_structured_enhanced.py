@@ -23,6 +23,7 @@ from torch.utils.data.distributed import DistributedSampler
 import torch
 import torch.nn as nn
 import torch.distributed as dist
+import torch.nn.functional as F
 import time
 import copy
 import traceback
@@ -64,6 +65,7 @@ from utils import utils_logger
 from utils import utils_image as util
 from utils import utils_option as option
 from utils.utils_dist import get_dist_info, init_dist
+from utils.utils_regularizers import regularizer_orth, regularizer_clip
 
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
@@ -200,6 +202,90 @@ def get_layer_sensitivity(layer_name):
     # Default sensitivity
     return 1.0
 
+
+def clone_frozen_teacher(model):
+    """Clone the current student as a frozen teacher on the same device."""
+    if hasattr(model, 'get_bare_model'):
+        student = model.get_bare_model(model.netG)
+    else:
+        student = model.netG if hasattr(model, 'netG') else model
+
+    teacher = copy.deepcopy(student)
+    teacher = teacher.to(next(student.parameters()).device)
+    teacher.eval()
+    for parameter in teacher.parameters():
+        parameter.requires_grad = False
+    return teacher
+
+
+def optimize_model_with_optional_kd(model, current_step, teacher_model=None, kd_weight=0.0, kd_loss_type='mse'):
+    """Run one fine-tuning step using the model's task loss and optional output-level KD."""
+    model.G_optimizer.zero_grad()
+    model.netG_forward()
+
+    task_loss = model.G_lossfn_weight * model.G_lossfn(model.E, model.H)
+    total_loss = task_loss
+    kd_loss = None
+
+    if teacher_model is not None and kd_weight > 0:
+        with torch.no_grad():
+            teacher_output = teacher_model(model.L)
+
+        if kd_loss_type == 'mse':
+            kd_loss = F.mse_loss(model.E, teacher_output)
+        elif kd_loss_type == 'l1':
+            kd_loss = F.l1_loss(model.E, teacher_output)
+        else:
+            raise ValueError(f"Unsupported KD loss type: {kd_loss_type}")
+
+        total_loss = total_loss + kd_weight * kd_loss
+
+    total_loss.backward()
+
+    clip_grad = model.opt_train['G_optimizer_clipgrad'] if model.opt_train['G_optimizer_clipgrad'] else 0
+    if clip_grad > 0:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad, norm_type=2)
+
+    model.G_optimizer.step()
+
+    orth_step = model.opt_train['G_regularizer_orthstep'] if model.opt_train['G_regularizer_orthstep'] else 0
+    if orth_step > 0 and current_step % orth_step == 0 and current_step % model.opt['train']['checkpoint_save'] != 0:
+        model.netG.apply(regularizer_orth)
+
+    clip_step = model.opt_train['G_regularizer_clipstep'] if model.opt_train['G_regularizer_clipstep'] else 0
+    if clip_step > 0 and current_step % clip_step == 0 and current_step % model.opt['train']['checkpoint_save'] != 0:
+        model.netG.apply(regularizer_clip)
+
+    model.log_dict['G_loss'] = total_loss.item()
+    model.log_dict['G_task_loss'] = task_loss.item()
+    if kd_loss is not None:
+        model.log_dict['G_kd_loss'] = kd_loss.item()
+
+    if model.opt_train['E_decay'] > 0:
+        model.update_E(model.opt_train['E_decay'])
+
+
+def collect_taylor_gradients(model, train_loader, num_batches=1):
+    """Accumulate task-loss gradients on the current student for Taylor importance."""
+    if num_batches <= 0:
+        return 0
+
+    model.netG.train()
+    model.G_optimizer.zero_grad()
+    batches_used = 0
+
+    for train_data in train_loader:
+        model.feed_data(train_data)
+        model.netG_forward()
+        loss = model.G_lossfn_weight * model.G_lossfn(model.E, model.H)
+        loss = loss / float(num_batches)
+        loss.backward()
+        batches_used += 1
+        if batches_used >= num_batches:
+            break
+
+    return batches_used
+
 def validate_pixelshuffle_constraints(model, scale_factor=2):
     """
     Validate that all layers feeding into PixelShuffle have correct channel counts.
@@ -243,7 +329,8 @@ def validate_pixelshuffle_constraints(model, scale_factor=2):
         print("? All PixelShuffle constraints satisfied")
         return True
 
-def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio_cap=0.25, native_layer_ratio_cap=0.2):
+def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio_cap=0.25,
+                                           native_layer_ratio_cap=0.2, importance_type='magnitude'):
     """
     Apply structured channel pruning using Torch-Pruning library.
     """
@@ -259,8 +346,11 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         if next(model.parameters()).is_cuda:
             example_inputs = example_inputs.cuda()
 
-        # Define importance metric (L2 norm for channels)
-        imp = tp.importance.MagnitudeImportance(p=2)  # L2 norm
+        # Define importance metric for channel ranking
+        if importance_type == 'taylor':
+            imp = tp.importance.GroupTaylorImportance(group_reduction='mean')
+        else:
+            imp = tp.importance.MagnitudeImportance(p=2)
 
         # Identify modules for structured pruning while protecting critical components
         unwrapped_parameters = []
@@ -415,6 +505,8 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
             # Older Torch-Pruning versions may not accept pruning_ratios argument
             print("Torch-Pruning version does not support layer-wise ratios; using global ratio instead.")
             pruner.step()
+
+        model.zero_grad(set_to_none=True)
 
         # Validate PixelShuffle divisibility after pruning
         try:
@@ -711,6 +803,14 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     native_max_layer_ratio = structured_opt.get('native_max_layer_ratio', 0.2)
     max_eval_images = int(structured_opt.get('max_eval_images', 22))
     full_eval_images = int(structured_opt.get('full_eval_images', 100))
+    pruning_importance_type = str(structured_opt.get('importance_type', 'magnitude')).lower()
+    taylor_grad_batches = int(structured_opt.get('taylor_grad_batches', 2))
+
+    fine_tune_opt = opt.get('fine_tune', {}) or {}
+    kd_enabled = bool(fine_tune_opt.get('kd_enabled', False))
+    kd_weight = float(fine_tune_opt.get('kd_weight', 0.0) or 0.0)
+    kd_loss_type = str(fine_tune_opt.get('kd_loss_type', 'mse')).lower()
+    kd_teacher_source = str(fine_tune_opt.get('teacher_source', 'baseline_clone')).lower()
 
     if pruning_steps <= 0:
         raise ValueError("structured_pruning.pruning_steps must be a positive integer")
@@ -906,6 +1006,11 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print(f"Step ratio range: {pruning_schedule[0]:.2%} ? {pruning_schedule[-1]:.2%}")
     print(f"PSNR threshold: {target_psnr_threshold} dB")
     print(f"Layer ratio caps | Torch-Pruning: {max_layer_ratio:.2%}, Native: {native_max_layer_ratio:.2%}")
+    print(f"Importance type: {pruning_importance_type}")
+    if pruning_importance_type == 'taylor':
+        print(f"Taylor gradient batches: {taylor_grad_batches}")
+    if kd_enabled:
+        print(f"KD enabled | teacher: {kd_teacher_source} | loss: {kd_loss_type} | weight: {kd_weight}")
     
     completed_iterations = int(progress_cache.get('pruning_iteration', 0))
     resume_psnr = progress_cache.get('last_psnr')
@@ -914,6 +1019,21 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     else:
         current_psnr = 1000
     pruning_iteration = completed_iterations
+    teacher_model = None
+    if kd_enabled:
+        if kd_teacher_source != 'baseline_clone':
+            raise ValueError(f"Unsupported teacher_source: {kd_teacher_source}")
+        teacher_model = clone_frozen_teacher(model)
+        print("Frozen baseline teacher cloned for KD.")
+
+    progress_cache['pruning_config'] = {
+        'importance_type': pruning_importance_type,
+        'taylor_grad_batches': taylor_grad_batches,
+        'kd_enabled': kd_enabled,
+        'kd_weight': kd_weight,
+        'kd_loss_type': kd_loss_type,
+        'teacher_source': kd_teacher_source,
+    }
     
     # Progressive structured pruning loop
     while pruning_iteration < pruning_steps and current_psnr > target_psnr_threshold:
@@ -928,6 +1048,19 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         
         # Get the actual network (handle model wrapper)
         network = model.netG if hasattr(model, 'netG') else model
+
+        importance_for_iteration = pruning_importance_type
+        if TORCH_PRUNING_AVAILABLE and pruning_importance_type == 'taylor':
+            try:
+                used_batches = collect_taylor_gradients(model, train_loader, taylor_grad_batches)
+                print(f"Collected Taylor gradients from {used_batches} batch(es).")
+                if used_batches == 0:
+                    raise RuntimeError("Taylor importance requested but no training batches were available.")
+            except Exception as taylor_error:
+                print(f"Taylor gradient collection failed: {taylor_error}")
+                print("Falling back to magnitude importance for this pruning iteration.")
+                network.zero_grad(set_to_none=True)
+                importance_for_iteration = 'magnitude'
         
         # Apply structured pruning
         if TORCH_PRUNING_AVAILABLE:
@@ -936,6 +1069,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 pruning_ratio=current_pruning_ratio,
                 layer_ratio_cap=max_layer_ratio,
                 native_layer_ratio_cap=native_max_layer_ratio
+                , importance_type=importance_for_iteration
             )
         else:
             network = apply_structured_pruning_native(
@@ -1012,7 +1146,13 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
 
                 # Feed data and optimize
                 model.feed_data(train_data)
-                model.optimize_parameters(current_step)
+                optimize_model_with_optional_kd(
+                    model,
+                    current_step,
+                    teacher_model=teacher_model if kd_enabled else None,
+                    kd_weight=kd_weight,
+                    kd_loss_type=kd_loss_type,
+                )
                 
                 # Accumulate loss for logging
                 if opt['rank'] == 0:

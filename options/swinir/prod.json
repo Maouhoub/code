@@ -19,7 +19,11 @@
   "fine_tune": {
     "L2_ft_epochs": 50,
     "early_stop_patience": 4,
-    "early_stop_min_delta": 0
+    "early_stop_min_delta": 0,
+    "kd_enabled": true,
+    "kd_weight": 0.1,
+    "kd_loss_type": "mse",
+    "teacher_source": "baseline_clone"
   },
   "structured_pruning": {
     "total_pruning_ratio": 0.7,
@@ -29,7 +33,9 @@
     "target_psnr_drop": 0.2,
     "max_layer_ratio": 0.25,
     "native_max_layer_ratio": 0.2,
-    "max_eval_images": 100
+    "max_eval_images": 100,
+    "importance_type": "taylor",
+    "taylor_grad_batches": 2
   },
   "datasets": {
     "train": {

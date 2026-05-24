@@ -58,7 +58,11 @@
   },
 
   "fine_tune": {
-    "L2_ft_epochs": 10
+    "L2_ft_epochs": 10,
+    "kd_enabled": true,
+    "kd_weight": 0.1,
+    "kd_loss_type": "mse",
+    "teacher_source": "baseline_clone"
   },
 
   "path": {
@@ -68,5 +72,19 @@
     "models": "superresolution/swinir_sr_structured_pruning/models",
     "images": "superresolution/swinir_sr_structured_pruning/images",
     "log": "superresolution/swinir_sr_structured_pruning"
+  },
+
+  "structured_pruning": {
+    "total_pruning_ratio": 0.7,
+    "pruning_steps": 18,
+    "schedule_weight_start": 0.6,
+    "schedule_weight_end": 1.0,
+    "target_psnr_drop": 0.2,
+    "max_layer_ratio": 0.25,
+    "native_max_layer_ratio": 0.2,
+    "max_eval_images": 22,
+    "full_eval_images": 100,
+    "importance_type": "taylor",
+    "taylor_grad_batches": 2
   }
 }
