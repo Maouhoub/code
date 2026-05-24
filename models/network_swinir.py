@@ -133,8 +133,14 @@ class WindowAttention(nn.Module):
         return q, k, v
 
     def _parameter_free_attention(self, x):
-        """Active parameter-free attention variant."""
-        return self._parameter_free_attention_statistics(x)
+        """Active parameter-free attention baseline: split x into heads and reuse it as q, k, and v."""
+        B_, N, C = x.shape
+        head_dim = C // self.num_heads
+        x_heads = x.reshape(B_, N, self.num_heads, head_dim).permute(0, 2, 1, 3)
+        q = x_heads * self.scale
+        k = x_heads
+        v = x_heads
+        return q, k, v
 
     def forward(self, x, mask=None):
         """
