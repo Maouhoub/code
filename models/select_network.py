@@ -199,7 +199,7 @@ def define_G(opt):
                    num_heads=opt_net['num_heads'],
                    mlp_ratio=opt_net['mlp_ratio'],
                    upsampler=opt_net['upsampler'],
-                   attention_type=opt_net.get('attention_type', 'qkv'))
+                   resi_connection=opt_net['resi_connection'])
 
     # ----------------------------------------
     # VRT

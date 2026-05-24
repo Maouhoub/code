@@ -176,18 +176,9 @@ class ModelBase():
                 if param_key in state_dict_old.keys():
                     state_dict_old = state_dict_old[param_key]
                 state_dict = network.state_dict()
-                matched_keys = []
-                skipped_keys = []
-                for key_old, param_old in state_dict_old.items():
-                    if key_old in state_dict and state_dict[key_old].shape == param_old.shape:
-                        state_dict[key_old] = param_old
-                        matched_keys.append(key_old)
-                    else:
-                        skipped_keys.append(key_old)
+                for ((key_old, param_old),(key, param)) in zip(state_dict_old.items(), state_dict.items()):
+                    state_dict[key] = param_old
                 network.load_state_dict(state_dict, strict=True)
-                print(f'Partially loaded {len(matched_keys)} parameter(s) from {load_path}.')
-                if skipped_keys:
-                    print(f'Skipped {len(skipped_keys)} unmatched parameter(s).')
                 del state_dict_old, state_dict
             return network
 

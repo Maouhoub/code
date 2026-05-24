@@ -76,19 +76,14 @@ class WindowAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.,
-                 attention_type='qkv'):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
 
         super().__init__()
         self.dim = dim
         self.window_size = window_size  # Wh, Ww
         self.num_heads = num_heads
-        self.attention_type = str(attention_type).lower()
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
-
-        if self.attention_type not in {'qkv', 'parameter_free'}:
-            raise ValueError(f'Unsupported attention_type: {attention_type}')
 
         # define a parameter table of relative position bias
         self.relative_position_bias_table = nn.Parameter(
@@ -107,10 +102,7 @@ class WindowAttention(nn.Module):
         relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
         self.register_buffer("relative_position_index", relative_position_index)
 
-        if self.attention_type == 'qkv':
-            self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        else:
-            self.qkv = None
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
 
@@ -119,29 +111,6 @@ class WindowAttention(nn.Module):
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
-    def _parameter_free_attention_statistics(self, x):
-        """Alternative parameter-free attention based on centered per-window feature statistics."""
-        B_, N, C = x.shape
-        head_dim = C // self.num_heads
-        x_heads = x.reshape(B_, N, self.num_heads, head_dim).permute(0, 2, 1, 3)
-        centered = x_heads - x_heads.mean(dim=2, keepdim=True)
-        token_energy = centered.pow(2).mean(dim=-1, keepdim=True)
-        stat_tokens = centered * (1.0 + token_energy)
-        q = F.normalize(stat_tokens, dim=-1) * self.scale
-        k = F.normalize(stat_tokens, dim=-1)
-        v = x_heads
-        return q, k, v
-
-    def _parameter_free_attention(self, x):
-        """Active parameter-free attention baseline: split x into heads and reuse it as q, k, and v."""
-        B_, N, C = x.shape
-        head_dim = C // self.num_heads
-        x_heads = x.reshape(B_, N, self.num_heads, head_dim).permute(0, 2, 1, 3)
-        q = x_heads * self.scale
-        k = x_heads
-        v = x_heads
-        return q, k, v
-
     def forward(self, x, mask=None):
         """
         Args:
@@ -149,13 +118,10 @@ class WindowAttention(nn.Module):
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
-        if self.attention_type == 'qkv':
-            qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
-            q = q * self.scale
-        else:
-            q, k, v = self._parameter_free_attention(x)
+        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
+        q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
@@ -179,14 +145,13 @@ class WindowAttention(nn.Module):
         return x
 
     def extra_repr(self) -> str:
-        return f'dim={self.dim}, window_size={self.window_size}, num_heads={self.num_heads}, attention_type={self.attention_type}'
+        return f'dim={self.dim}, window_size={self.window_size}, num_heads={self.num_heads}'
 
     def flops(self, N):
         # calculate flops for 1 window with token length of N
         flops = 0
-        if self.attention_type == 'qkv':
-            # qkv = self.qkv(x)
-            flops += N * self.dim * 3 * self.dim
+        # qkv = self.qkv(x)
+        flops += N * self.dim * 3 * self.dim
         # attn = (q @ k.transpose(-2, -1))
         flops += self.num_heads * N * (self.dim // self.num_heads) * N
         #  x = (attn @ v)
@@ -217,7 +182,7 @@ class SwinTransformerBlock(nn.Module):
 
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, attention_type='qkv'):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -234,8 +199,7 @@ class SwinTransformerBlock(nn.Module):
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
             dim, window_size=to_2tuple(self.window_size), num_heads=num_heads,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
-            attention_type=attention_type)
+            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -404,8 +368,7 @@ class BasicLayer(nn.Module):
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False,
-                 attention_type='qkv'):
+                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False):
 
         super().__init__()
         self.dim = dim
@@ -422,8 +385,7 @@ class BasicLayer(nn.Module):
                                  qkv_bias=qkv_bias, qk_scale=qk_scale,
                                  drop=drop, attn_drop=attn_drop,
                                  drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
-                                 norm_layer=norm_layer,
-                                 attention_type=attention_type)
+                                 norm_layer=norm_layer)
             for i in range(depth)])
 
         # patch merging layer
@@ -480,7 +442,7 @@ class RSTB(nn.Module):
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False,
-                 img_size=224, patch_size=4, resi_connection='1conv', attention_type='qkv'):
+                 img_size=224, patch_size=4, resi_connection='1conv'):
         super(RSTB, self).__init__()
 
         self.dim = dim
@@ -497,8 +459,7 @@ class RSTB(nn.Module):
                                          drop_path=drop_path,
                                          norm_layer=norm_layer,
                                          downsample=downsample,
-                                         use_checkpoint=use_checkpoint,
-                                         attention_type=attention_type)
+                                         use_checkpoint=use_checkpoint)
 
         if resi_connection == '1conv':
             self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
@@ -702,7 +663,6 @@ class SwinIR(nn.Module):
         self.upscale = upscale
         self.upsampler = upsampler
         self.window_size = window_size
-        self.attention_type = str(kwargs.pop('attention_type', 'qkv')).lower()
 
         #####################################################################################################
         ################################### 1, shallow feature extraction ###################################
@@ -758,8 +718,7 @@ class SwinIR(nn.Module):
                          use_checkpoint=use_checkpoint,
                          img_size=img_size,
                          patch_size=patch_size,
-                         resi_connection=resi_connection,
-                         attention_type=self.attention_type
+                         resi_connection=resi_connection
 
                          )
             self.layers.append(layer)
