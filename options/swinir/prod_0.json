@@ -13,12 +13,12 @@
     "pretrained_netG": "/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x2.pth",
     "models": "/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models",
     "images": "/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/images",
-    "log": "/content/drive/MyDrive/superresolution",
+    "log": "/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2",
     "pretrained_netE": null
   },
   "fine_tune": {
-    "L2_ft_epochs": 50,
-    "early_stop_patience": 4,
+    "L2_ft_epochs": 3,
+    "early_stop_patience": 2,
     "early_stop_min_delta": 0,
     "kd_enabled": true,
     "kd_weight": 0.1,
@@ -27,18 +27,16 @@
   },
   "structured_pruning": {
     "total_pruning_ratio": 0.7,
-    "pruning_steps": 18,
+    "pruning_steps": 4,
     "schedule_weight_start": 0.6,
     "schedule_weight_end": 1.0,
     "target_psnr_drop": 0.2,
     "max_layer_ratio": 0.25,
     "native_max_layer_ratio": 0.2,
-    "max_eval_images": 100,
+    "max_eval_images": 10,
+    "full_eval_images": 20,
     "importance_type": "taylor",
-    "taylor_grad_batches": 2,
-    "prune_attention_heads": true,
-    "attention_head_pruning_ratio": 0.15,
-    "prune_attention_head_dims": false
+    "taylor_grad_batches": 1
   },
   "datasets": {
     "train": {
@@ -63,29 +61,25 @@
         "dataset_type": "sr",
         "dataroot_H": "/content/TEST_SETS/BSDS100/HR",
         "dataroot_L": "/content/TEST_SETS/BSDS100/x2"
-      }
-      ,
+      },
       {
         "name": "Set14",
         "dataset_type": "sr",
         "dataroot_H": "/content/TEST_SETS/Set14/HR",
         "dataroot_L": "/content/TEST_SETS/Set14/x2"
-      }
-      ,
+      },
       {
         "name": "Set5",
         "dataset_type": "sr",
         "dataroot_H": "/content/TEST_SETS/Set5/HR",
         "dataroot_L": "/content/TEST_SETS/Set5/x2"
-      }
-      ,
+      },
       {
         "name": "manga109",
         "dataset_type": "sr",
         "dataroot_H": "/content/TEST_SETS/manga109/HR",
         "dataroot_L": "/content/TEST_SETS/manga109/x2"
-      }
-      ,
+      },
       {
         "name": "urban100",
         "dataset_type": "sr",

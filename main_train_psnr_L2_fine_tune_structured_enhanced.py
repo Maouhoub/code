@@ -203,6 +203,44 @@ def get_layer_sensitivity(layer_name):
     return 1.0
 
 
+def build_cubic_pruning_schedule(total_pruning_ratio, pruning_steps):
+    """Build per-step pruning ratios using Torch-Pruning's cubic scheduler when available."""
+    if pruning_steps <= 0:
+        raise ValueError("pruning_steps must be positive")
+
+    cumulative_schedule = None
+    scheduler_module = getattr(tp, 'scheduler', None) if TORCH_PRUNING_AVAILABLE else None
+    cubic_scheduler = getattr(scheduler_module, 'CubicScheduler', None) if scheduler_module is not None else None
+
+    if cubic_scheduler is not None:
+        try:
+            cumulative_schedule = cubic_scheduler(total_pruning_ratio, pruning_steps)
+        except TypeError:
+            cumulative_schedule = None
+
+    if cumulative_schedule is None:
+        cumulative_schedule = [
+            total_pruning_ratio * (1.0 - (1.0 - (step / float(pruning_steps))) ** 3)
+            for step in range(pruning_steps + 1)
+        ]
+
+    cumulative_schedule = list(cumulative_schedule)
+    if len(cumulative_schedule) == pruning_steps:
+        cumulative_schedule = [0.0] + cumulative_schedule
+    elif len(cumulative_schedule) != pruning_steps + 1:
+        raise ValueError(
+            f"Unexpected cubic schedule length: {len(cumulative_schedule)} for {pruning_steps} steps"
+        )
+
+    pruning_schedule = []
+    previous_ratio = 0.0
+    for current_ratio in cumulative_schedule[1:]:
+        pruning_schedule.append(max(0.0, float(current_ratio) - previous_ratio))
+        previous_ratio = float(current_ratio)
+
+    return pruning_schedule, cumulative_schedule
+
+
 def clone_frozen_teacher(model):
     """Clone the current student as a frozen teacher on the same device."""
     if hasattr(model, 'get_bare_model'):
@@ -330,7 +368,9 @@ def validate_pixelshuffle_constraints(model, scale_factor=2):
         return True
 
 def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio_cap=0.25,
-                                           native_layer_ratio_cap=0.2, importance_type='magnitude'):
+                                           native_layer_ratio_cap=0.2, importance_type='magnitude',
+                                           prune_attention_heads=False, head_pruning_ratio=0.0,
+                                           prune_head_dims=False):
     """
     Apply structured channel pruning using Torch-Pruning library.
     """
@@ -358,10 +398,14 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         module_sensitivity = {}
         mlp_fc1_names = []
         conv_prunable_names = []
+        attention_qkv_names = []
         fc2_names = []
         ignored_modules = set()
         pixelshuffle_container_names = []
         out_channel_groups = {}
+        num_heads = {}
+        registered_relative_position_bias = set()
+        module_lookup = dict(model.named_modules())
 
         embed_dim = getattr(model, 'embed_dim', None)
         scale_factor = getattr(model, 'upscale', 2)
@@ -372,6 +416,19 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
 
         for name, module in model.named_modules():
             lower_name = name.lower()
+            if prune_attention_heads and isinstance(module, nn.Linear) and lower_name.endswith('attn.qkv'):
+                attention_module_name = name.rsplit('.', 1)[0]
+                attention_module = module_lookup.get(attention_module_name)
+                if attention_module is not None and hasattr(attention_module, 'num_heads'):
+                    num_heads[module] = int(attention_module.num_heads)
+                    attention_qkv_names.append(name)
+                    if hasattr(attention_module, 'relative_position_bias_table'):
+                        bias_param = attention_module.relative_position_bias_table
+                        if bias_param is not None and id(bias_param) not in registered_relative_position_bias:
+                            unwrapped_parameters.append((bias_param, 1))
+                            registered_relative_position_bias.add(id(bias_param))
+                    continue
+
             if 'attn' in lower_name or 'relative_position' in lower_name:
                 ignored_modules.add(module)
                 continue
@@ -468,11 +525,12 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         for container_name in pixelshuffle_container_names:
             print(f"Excluding PixelShuffle container: {container_name}")
 
-        for name, param in model.named_parameters():
-            if 'relative_position_bias_table' in name or 'attn_mask' in name:
-                unwrapped_parameters.append((name, param))
+        if attention_qkv_names:
+            print(f"Attention qkv layers enabled for head pruning: first={attention_qkv_names[0]}, total={len(attention_qkv_names)}")
+        elif prune_attention_heads and head_pruning_ratio > 0:
+            print("Attention head pruning requested, but no attn.qkv layers were detected.")
 
-        if not prunable_modules:
+        if not prunable_modules and not num_heads:
             print("No eligible modules found for Torch-Pruning; returning model unchanged.")
             return model
 
@@ -490,6 +548,10 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
             ignored_layers=ignored_layers,
             unwrapped_parameters=unwrapped_parameters,
             out_channel_groups=out_channel_groups if out_channel_groups else None,
+            num_heads=num_heads if num_heads else None,
+            prune_num_heads=bool(prune_attention_heads and head_pruning_ratio > 0),
+            head_pruning_ratio=head_pruning_ratio if prune_attention_heads else 0.0,
+            prune_head_dims=prune_head_dims,
         )
 
         # Apply pruning
@@ -805,6 +867,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     full_eval_images = int(structured_opt.get('full_eval_images', 100))
     pruning_importance_type = str(structured_opt.get('importance_type', 'magnitude')).lower()
     taylor_grad_batches = int(structured_opt.get('taylor_grad_batches', 2))
+    prune_attention_heads = bool(structured_opt.get('prune_attention_heads', False))
+    attention_head_pruning_ratio = float(structured_opt.get('attention_head_pruning_ratio', 0.0) or 0.0)
+    prune_attention_head_dims = bool(structured_opt.get('prune_attention_head_dims', False))
 
     fine_tune_opt = opt.get('fine_tune', {}) or {}
     kd_enabled = bool(fine_tune_opt.get('kd_enabled', False))
@@ -991,24 +1056,26 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print("="*80)
     
     # Pruning configuration
-    schedule_weights = np.linspace(schedule_weight_start, schedule_weight_end, pruning_steps)
-    weight_sum = schedule_weights.sum()
-    if weight_sum == 0:
-        pruning_schedule = [total_pruning_ratio / pruning_steps] * pruning_steps
-    else:
-        pruning_schedule = [total_pruning_ratio * (w / weight_sum) for w in schedule_weights]
+    pruning_schedule, cumulative_pruning_schedule = build_cubic_pruning_schedule(
+        total_pruning_ratio,
+        pruning_steps,
+    )
     pruning_ratio_per_step = total_pruning_ratio / pruning_steps
     target_psnr_threshold = baseline_psnr - target_psnr_drop  # Stop if PSNR drops below this
     
     print(f"Target total pruning ratio: {total_pruning_ratio:.1%}")
     print(f"Pruning steps: {pruning_steps}")
     print(f"Pruning ratio per step: {pruning_ratio_per_step:.1%}")
-    print(f"Step ratio range: {pruning_schedule[0]:.2%} ? {pruning_schedule[-1]:.2%}")
+    print("Scheduler: cubic")
+    print(f"Step ratio range: {pruning_schedule[0]:.2%} -> {pruning_schedule[-1]:.2%}")
+    print(f"Final cumulative pruning ratio: {cumulative_pruning_schedule[-1]:.2%}")
     print(f"PSNR threshold: {target_psnr_threshold} dB")
     print(f"Layer ratio caps | Torch-Pruning: {max_layer_ratio:.2%}, Native: {native_max_layer_ratio:.2%}")
     print(f"Importance type: {pruning_importance_type}")
     if pruning_importance_type == 'taylor':
         print(f"Taylor gradient batches: {taylor_grad_batches}")
+    if prune_attention_heads and attention_head_pruning_ratio > 0:
+        print(f"Attention head pruning: enabled | ratio: {attention_head_pruning_ratio:.2%} | prune_head_dims: {prune_attention_head_dims}")
     if kd_enabled:
         print(f"KD enabled | teacher: {kd_teacher_source} | loss: {kd_loss_type} | weight: {kd_weight}")
     
@@ -1029,6 +1096,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     progress_cache['pruning_config'] = {
         'importance_type': pruning_importance_type,
         'taylor_grad_batches': taylor_grad_batches,
+        'prune_attention_heads': prune_attention_heads,
+        'attention_head_pruning_ratio': attention_head_pruning_ratio,
+        'prune_attention_head_dims': prune_attention_head_dims,
         'kd_enabled': kd_enabled,
         'kd_weight': kd_weight,
         'kd_loss_type': kd_loss_type,
@@ -1069,7 +1139,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 pruning_ratio=current_pruning_ratio,
                 layer_ratio_cap=max_layer_ratio,
                 native_layer_ratio_cap=native_max_layer_ratio
-                , importance_type=importance_for_iteration
+                , importance_type=importance_for_iteration,
+                prune_attention_heads=prune_attention_heads,
+                head_pruning_ratio=attention_head_pruning_ratio,
+                prune_head_dims=prune_attention_head_dims,
             )
         else:
             network = apply_structured_pruning_native(
