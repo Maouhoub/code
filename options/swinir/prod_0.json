@@ -36,7 +36,10 @@
     "max_eval_images": 10,
     "full_eval_images": 20,
     "importance_type": "taylor",
-    "taylor_grad_batches": 1
+    "taylor_grad_batches": 1,
+    "prune_attention_heads": true,
+    "attention_head_pruning_ratio": 0.10,
+    "prune_attention_head_dims": false
   },
   "datasets": {
     "train": {
