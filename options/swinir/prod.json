@@ -36,7 +36,7 @@
     "max_eval_images": 100,
     "importance_type": "taylor",
     "taylor_grad_batches": 2,
-    "taylor_detail_weight": 0.1,
+    "taylor_detail_weight": 0,
     "taylor_detail_type": "gradient",
     "prune_attention_heads": true,
     "attention_head_pruning_ratio": 0.15,
