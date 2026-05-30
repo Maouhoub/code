@@ -256,6 +256,15 @@ def clone_frozen_teacher(model):
     return teacher
 
 
+def compute_gradient_detail_loss(student_output, teacher_output):
+    """Return a simple edge-matching loss using image gradients."""
+    student_dx = student_output[:, :, :, 1:] - student_output[:, :, :, :-1]
+    student_dy = student_output[:, :, 1:, :] - student_output[:, :, :-1, :]
+    teacher_dx = teacher_output[:, :, :, 1:] - teacher_output[:, :, :, :-1]
+    teacher_dy = teacher_output[:, :, 1:, :] - teacher_output[:, :, :-1, :]
+    return F.l1_loss(student_dx, teacher_dx) + F.l1_loss(student_dy, teacher_dy)
+
+
 def optimize_model_with_optional_kd(model, current_step, teacher_model=None, kd_weight=0.0, kd_loss_type='mse'):
     """Run one fine-tuning step using the model's task loss and optional output-level KD."""
     model.G_optimizer.zero_grad()
@@ -303,7 +312,8 @@ def optimize_model_with_optional_kd(model, current_step, teacher_model=None, kd_
         model.update_E(model.opt_train['E_decay'])
 
 
-def collect_taylor_gradients(model, train_loader, num_batches=1):
+def collect_taylor_gradients(model, train_loader, num_batches=1, teacher_model=None,
+                             detail_weight=0.0, detail_type='none'):
     """Accumulate task-loss gradients on the current student for Taylor importance."""
     if num_batches <= 0:
         return 0
@@ -316,6 +326,18 @@ def collect_taylor_gradients(model, train_loader, num_batches=1):
         model.feed_data(train_data)
         model.netG_forward()
         loss = model.G_lossfn_weight * model.G_lossfn(model.E, model.H)
+
+        if teacher_model is not None and detail_weight > 0:
+            with torch.no_grad():
+                teacher_output = teacher_model(model.L)
+
+            if detail_type == 'gradient':
+                detail_loss = compute_gradient_detail_loss(model.E, teacher_output)
+            else:
+                raise ValueError(f"Unsupported Taylor detail loss type: {detail_type}")
+
+            loss = loss + detail_weight * detail_loss
+
         loss = loss / float(num_batches)
         loss.backward()
         batches_used += 1
@@ -867,6 +889,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     full_eval_images = int(structured_opt.get('full_eval_images', 100))
     pruning_importance_type = str(structured_opt.get('importance_type', 'magnitude')).lower()
     taylor_grad_batches = int(structured_opt.get('taylor_grad_batches', 2))
+    taylor_detail_weight = float(structured_opt.get('taylor_detail_weight', 0.0) or 0.0)
+    taylor_detail_type = str(structured_opt.get('taylor_detail_type', 'none')).lower()
     prune_attention_heads = bool(structured_opt.get('prune_attention_heads', False))
     attention_head_pruning_ratio = float(structured_opt.get('attention_head_pruning_ratio', 0.0) or 0.0)
     prune_attention_head_dims = bool(structured_opt.get('prune_attention_head_dims', False))
@@ -1074,6 +1098,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print(f"Importance type: {pruning_importance_type}")
     if pruning_importance_type == 'taylor':
         print(f"Taylor gradient batches: {taylor_grad_batches}")
+        if taylor_detail_weight > 0:
+            print(f"Taylor detail loss: {taylor_detail_type} | weight: {taylor_detail_weight}")
     if prune_attention_heads and attention_head_pruning_ratio > 0:
         print(f"Attention head pruning: enabled | ratio: {attention_head_pruning_ratio:.2%} | prune_head_dims: {prune_attention_head_dims}")
     if kd_enabled:
@@ -1087,15 +1113,22 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         current_psnr = 1000
     pruning_iteration = completed_iterations
     teacher_model = None
-    if kd_enabled:
+    if kd_enabled or (pruning_importance_type == 'taylor' and taylor_detail_weight > 0):
         if kd_teacher_source != 'baseline_clone':
             raise ValueError(f"Unsupported teacher_source: {kd_teacher_source}")
         teacher_model = clone_frozen_teacher(model)
-        print("Frozen baseline teacher cloned for KD.")
+        if kd_enabled and pruning_importance_type == 'taylor' and taylor_detail_weight > 0:
+            print("Frozen baseline teacher cloned for KD and Taylor detail guidance.")
+        elif kd_enabled:
+            print("Frozen baseline teacher cloned for KD.")
+        else:
+            print("Frozen baseline teacher cloned for Taylor detail guidance.")
 
     progress_cache['pruning_config'] = {
         'importance_type': pruning_importance_type,
         'taylor_grad_batches': taylor_grad_batches,
+        'taylor_detail_weight': taylor_detail_weight,
+        'taylor_detail_type': taylor_detail_type,
         'prune_attention_heads': prune_attention_heads,
         'attention_head_pruning_ratio': attention_head_pruning_ratio,
         'prune_attention_head_dims': prune_attention_head_dims,
@@ -1122,7 +1155,14 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         importance_for_iteration = pruning_importance_type
         if TORCH_PRUNING_AVAILABLE and pruning_importance_type == 'taylor':
             try:
-                used_batches = collect_taylor_gradients(model, train_loader, taylor_grad_batches)
+                used_batches = collect_taylor_gradients(
+                    model,
+                    train_loader,
+                    taylor_grad_batches,
+                    teacher_model=teacher_model if taylor_detail_weight > 0 else None,
+                    detail_weight=taylor_detail_weight,
+                    detail_type=taylor_detail_type,
+                )
                 print(f"Collected Taylor gradients from {used_batches} batch(es).")
                 if used_batches == 0:
                     raise RuntimeError("Taylor importance requested but no training batches were available.")
