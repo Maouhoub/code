@@ -722,7 +722,8 @@ def print_results_table(results):
     print("      Negative changes in PSNR/SSIM indicate quality degradation")
     print("="*100)
 
-def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=22, save_images=False):
+def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=22, save_images=False,
+                   compute_ssim=True, measure_inference_time=True, log_per_image=False):
     """
     Comprehensive model evaluation function.
     Returns PSNR, SSIM, and average inference time.
@@ -738,10 +739,12 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
     model_network = model.netG if hasattr(model, 'netG') else model
     model_network.eval()
 
-    try:
-        timing_device = next(model_network.parameters()).device
-    except StopIteration:
-        timing_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    timing_device = None
+    if measure_inference_time:
+        try:
+            timing_device = next(model_network.parameters()).device
+        except StopIteration:
+            timing_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     interesting_save_indices = {1, 2, 16, 28}
 
@@ -770,19 +773,20 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
             # Forward pass with timing
             model.feed_data(test_data)
 
-            if torch.cuda.is_available() and isinstance(timing_device, torch.device) and timing_device.type == 'cuda':
+            if measure_inference_time and torch.cuda.is_available() and isinstance(timing_device, torch.device) and timing_device.type == 'cuda':
                 torch.cuda.synchronize(timing_device)
 
-            start_time = time.time()
+            start_time = time.time() if measure_inference_time else None
             model.test()
 
-            if torch.cuda.is_available() and isinstance(timing_device, torch.device) and timing_device.type == 'cuda':
+            if measure_inference_time and torch.cuda.is_available() and isinstance(timing_device, torch.device) and timing_device.type == 'cuda':
                 torch.cuda.synchronize(timing_device)
 
-            end_time = time.time()
-            
-            inference_time = end_time - start_time
-            avg_inference_time += inference_time
+            inference_time = 0.0
+            if measure_inference_time:
+                end_time = time.time()
+                inference_time = end_time - start_time
+                avg_inference_time += inference_time
 
             # Get results
             visuals = model.current_visuals()
@@ -799,20 +803,32 @@ def evaluate_model(model, test_loader, opt, current_step, suffix="", max_images=
             avg_psnr += current_psnr
             
             # Calculate SSIM
-            current_ssim = calculate_ssim(E_img, H_img)
-            avg_ssim += current_ssim
+            current_ssim = 0.0
+            if compute_ssim:
+                current_ssim = calculate_ssim(E_img, H_img)
+                avg_ssim += current_ssim
 
-            print(f'{idx:>4d} --> {image_name_ext:>15s} | PSNR: {current_psnr:<6.2f}dB | SSIM: {current_ssim:<6.4f} | Time: {inference_time:<6.4f}s')
+            if log_per_image:
+                if compute_ssim and measure_inference_time:
+                    print(f'{idx:>4d} --> {image_name_ext:>15s} | PSNR: {current_psnr:<6.2f}dB | SSIM: {current_ssim:<6.4f} | Time: {inference_time:<6.4f}s')
+                elif compute_ssim:
+                    print(f'{idx:>4d} --> {image_name_ext:>15s} | PSNR: {current_psnr:<6.2f}dB | SSIM: {current_ssim:<6.4f}')
+                elif measure_inference_time:
+                    print(f'{idx:>4d} --> {image_name_ext:>15s} | PSNR: {current_psnr:<6.2f}dB | Time: {inference_time:<6.4f}s')
+                else:
+                    print(f'{idx:>4d} --> {image_name_ext:>15s} | PSNR: {current_psnr:<6.2f}dB')
 
     # Calculate averages
     avg_psnr /= idx
-    avg_ssim /= idx
-    avg_inference_time /= idx
+    avg_ssim = (avg_ssim / idx) if compute_ssim else 0.0
+    avg_inference_time = (avg_inference_time / idx) if measure_inference_time else 0.0
 
     print(f"\n Evaluation Results ({suffix}):")
     print(f"  Average PSNR: {avg_psnr:.4f} dB")
-    print(f"  Average SSIM: {avg_ssim:.4f}")
-    print(f"  Average Inference Time: {avg_inference_time:.4f} s")
+    if compute_ssim:
+        print(f"  Average SSIM: {avg_ssim:.4f}")
+    if measure_inference_time:
+        print(f"  Average Inference Time: {avg_inference_time:.4f} s")
     print(f"  Total Images: {idx}")
     
     return avg_psnr, avg_ssim, avg_inference_time
@@ -1201,26 +1217,15 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
             print("  PixelShuffle constraints violated! Model may not work correctly.")
         
         print("? Structured pruning applied successfully")
-        
-        # Calculate post-pruning statistics with robust error handling
-        current_stats = calculate_model_stats(network, input_shape, device)
-        
-        # Safe calculation of compression ratios
+
+        current_params, _ = count_parameters(network)
         if baseline_stats['total_params'] > 0:
-            compression_ratio = (1 - current_stats['total_params'] / baseline_stats['total_params']) * 100
+            compression_ratio = (1 - current_params / baseline_stats['total_params']) * 100
         else:
             compression_ratio = 0
-            
-        if baseline_stats['flops'] > 0 and current_stats['flops'] > 0:
-            flop_reduction = (1 - current_stats['flops'] / baseline_stats['flops']) * 100
-        else:
-            flop_reduction = 0
-        
-        print(f"Parameters after pruning: {current_stats['total_params']:,} ({compression_ratio:.1f}% reduction)")
-        if current_stats['flops'] > 0:
-            print(f"FLOPs after pruning: {current_stats['flops']:,} ({flop_reduction:.1f}% reduction)")
-        else:
-            print(f"FLOPs calculation unavailable due to model complexity")
+
+        print(f"Parameters after pruning: {current_params:,} ({compression_ratio:.1f}% reduction)")
+        print("FLOPs/stat recomputation deferred to final evaluation for faster pruning iterations")
 
         # =============================================================================
         # Fine-tuning after Pruning
@@ -1283,9 +1288,18 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                     print("  Warning: No batches processed during fine-tuning epoch")
 
                 val_suffix = f"pruned_iter_{pruning_iteration}_epoch_{epoch+1}"
-                epoch_psnr, epoch_ssim, epoch_inference_time = evaluate_model(
-                    model, test_loader, opt, current_step, val_suffix, max_images=max_eval_images)
-                print(f"    Validation PSNR: {epoch_psnr:.4f} dB | SSIM: {epoch_ssim:.4f} | Time: {epoch_inference_time:.4f} s")
+                epoch_psnr, _, _ = evaluate_model(
+                    model,
+                    test_loader,
+                    opt,
+                    current_step,
+                    val_suffix,
+                    max_images=max_eval_images,
+                    compute_ssim=False,
+                    measure_inference_time=False,
+                    log_per_image=False,
+                )
+                print(f"    Validation PSNR: {epoch_psnr:.4f} dB")
 
                 if epoch_psnr >= best_val_psnr + min_delta:
                     best_val_psnr = epoch_psnr
@@ -1314,7 +1328,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         print(f"\n Evaluating model after pruning iteration {pruning_iteration}...")
         if opt['rank'] == 0:
             current_psnr, current_ssim, current_inference_time = evaluate_model(
-                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=full_eval_images, save_images=True)
+                model, test_loader, opt, current_step, f"pruned_iter_{pruning_iteration}", max_images=full_eval_images, save_images=False)
             
             print(f"  PSNR: {current_psnr:.4f} dB")
             print(f"  SSIM: {current_ssim:.4f}")
