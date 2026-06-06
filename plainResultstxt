@@ -1,0 +1,78 @@
+[Errno 2] No such file or directory: 'code'
+/content/code
+Reading options from: options/swinir/prod.json
+export CUDA_VISIBLE_DEVICES=0
+number of GPUs is: 1
+Looking for pretrained models...
+Found checkpoint: /content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/18300_G.pth
+Model conf :  {'task': 'swinir_sr_lightweight_x2', 'model': 'plain', 'gpu_ids': [0], 'dist': False, 'rank': 0, 'scale': 2, 'n_channels': 3, 'path': {'root': '/content/drive/MyDrive/superresolution', 'pretrained_netG': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/18300_G.pth', 'models': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models', 'images': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/images', 'log': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2', 'pretrained_netE': None, 'task': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2', 'options': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/options'}, 'fine_tune': {'L2_ft_epochs': 50, 'early_stop_patience': 4, 'early_stop_min_delta': 0, 'kd_enabled': True, 'kd_weight': 0.1, 'kd_loss_type': 'mse', 'teacher_source': 'baseline_clone'}, 'structured_pruning': {'total_pruning_ratio': 0.7, 'pruning_steps': 18, 'schedule_weight_start': 0.6, 'schedule_weight_end': 1.0, 'target_psnr_drop': 0.2, 'max_layer_ratio': 0.25, 'native_max_layer_ratio': 0.2, 'max_eval_images': 100, 'importance_type': 'taylor', 'taylor_grad_batches': 2, 'taylor_detail_weight': 0, 'taylor_detail_type': 'gradient', 'prune_attention_heads': True, 'attention_head_pruning_ratio': 0.15, 'prune_attention_head_dims': False}, 'datasets': {'train': {'name': 'train_dataset', 'dataset_type': 'sr', 'dataroot_H': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_HR', 'dataroot_L': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_LR_bicubic/X2', 'H_size': 128, 'dataloader_shuffle': True, 'dataloader_num_workers': 2, 'dataloader_batch_size': 16, 'phase': 'train', 'scale': 2, 'n_channels': 3}, 'test': [{'name': 'DIV2K', 'dataset_type': 'sr', 'dataroot_H': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_HR', 'dataroot_L': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_LR_bicubic/X2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'BSDS100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/BSDS100/HR', 'dataroot_L': '/content/TEST_SETS/BSDS100/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'Set14', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set14/HR', 'dataroot_L': '/content/TEST_SETS/Set14/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'Set5', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set5/HR', 'dataroot_L': '/content/TEST_SETS/Set5/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'manga109', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/manga109/HR', 'dataroot_L': '/content/TEST_SETS/manga109/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'urban100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/urban100/HR', 'dataroot_L': '/content/TEST_SETS/urban100/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}]}, 'netG': {'net_type': 'swinir', 'upscale': 2, 'in_chans': 3, 'img_size': 64, 'window_size': 8, 'img_range': 1.0, 'depths': [6, 6, 6, 6], 'embed_dim': 60, 'num_heads': [6, 6, 6, 6], 'mlp_ratio': 2, 'upsampler': 'pixelshuffledirect', 'resi_connection': '1conv', 'init_type': 'default', 'scale': 2}, 'train': {'with_definition': True, 'G_lossfn_type': 'l1', 'G_lossfn_weight': 1.0, 'E_decay': 0, 'G_optimizer_type': 'adam', 'G_optimizer_lr': 1e-05, 'G_optimizer_wd': 0, 'G_optimizer_clipgrad': None, 'G_optimizer_reuse': True, 'G_scheduler_type': 'MultiStepLR', 'G_scheduler_milestones': [250000, 400000, 450000, 475000, 500000], 'G_scheduler_gamma': 0.5, 'G_regularizer_orthstep': None, 'G_regularizer_clipstep': None, 'G_param_strict': True, 'E_param_strict': True, 'checkpoint_test': 5000, 'checkpoint_save': 5000, 'checkpoint_print': 200, 'manual_seed': 0, 'F_feature_layer': 34, 'F_weights': 1.0, 'F_lossfn_type': 'l1', 'F_use_input_norm': True, 'F_use_range_norm': False, 'G_optimizer_betas': [0.9, 0.999], 'G_scheduler_restart_weights': 1}, 'opt_path': 'options/swinir/prod.json', 'is_train': True, 'merge_bn': False, 'merge_bn_startpoint': -1, 'find_unused_parameters': False, 'use_static_graph': False, 'num_gpu': 1}
+/usr/local/lib/python3.12/dist-packages/timm/models/layers/__init__.py:49: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/usr/local/lib/python3.12/dist-packages/torch/functional.py:534: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3595.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Pass this initialization! Initialization was done during network definition!
+Training model [ModelPlain] is created.
+OPTIONS :  {'task': 'swinir_sr_lightweight_x2', 'model': 'plain', 'gpu_ids': [0], 'dist': False, 'rank': 0, 'scale': 2, 'n_channels': 3, 'path': {'root': '/content/drive/MyDrive/superresolution', 'pretrained_netG': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/18300_G.pth', 'models': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models', 'images': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/images', 'log': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2', 'pretrained_netE': None, 'task': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2', 'options': '/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/options'}, 'fine_tune': {'L2_ft_epochs': 50, 'early_stop_patience': 4, 'early_stop_min_delta': 0, 'kd_enabled': True, 'kd_weight': 0.1, 'kd_loss_type': 'mse', 'teacher_source': 'baseline_clone'}, 'structured_pruning': {'total_pruning_ratio': 0.7, 'pruning_steps': 18, 'schedule_weight_start': 0.6, 'schedule_weight_end': 1.0, 'target_psnr_drop': 0.2, 'max_layer_ratio': 0.25, 'native_max_layer_ratio': 0.2, 'max_eval_images': 100, 'importance_type': 'taylor', 'taylor_grad_batches': 2, 'taylor_detail_weight': 0, 'taylor_detail_type': 'gradient', 'prune_attention_heads': True, 'attention_head_pruning_ratio': 0.15, 'prune_attention_head_dims': False}, 'datasets': {'train': {'name': 'train_dataset', 'dataset_type': 'sr', 'dataroot_H': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_HR', 'dataroot_L': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_train_LR_bicubic/X2', 'H_size': 128, 'dataloader_shuffle': True, 'dataloader_num_workers': 2, 'dataloader_batch_size': 16, 'phase': 'train', 'scale': 2, 'n_channels': 3}, 'test': [{'name': 'DIV2K', 'dataset_type': 'sr', 'dataroot_H': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_HR', 'dataroot_L': '/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_LR_bicubic/X2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'BSDS100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/BSDS100/HR', 'dataroot_L': '/content/TEST_SETS/BSDS100/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'Set14', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set14/HR', 'dataroot_L': '/content/TEST_SETS/Set14/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'Set5', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set5/HR', 'dataroot_L': '/content/TEST_SETS/Set5/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'manga109', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/manga109/HR', 'dataroot_L': '/content/TEST_SETS/manga109/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}, {'name': 'urban100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/urban100/HR', 'dataroot_L': '/content/TEST_SETS/urban100/x2', 'phase': 'test', 'scale': 2, 'n_channels': 3}]}, 'netG': {'net_type': 'swinir', 'upscale': 2, 'in_chans': 3, 'img_size': 64, 'window_size': 8, 'img_range': 1.0, 'depths': [6, 6, 6, 6], 'embed_dim': 60, 'num_heads': [6, 6, 6, 6], 'mlp_ratio': 2, 'upsampler': 'pixelshuffledirect', 'resi_connection': '1conv', 'init_type': 'default', 'scale': 2}, 'train': {'with_definition': True, 'G_lossfn_type': 'l1', 'G_lossfn_weight': 1.0, 'E_decay': 0, 'G_optimizer_type': 'adam', 'G_optimizer_lr': 1e-05, 'G_optimizer_wd': 0, 'G_optimizer_clipgrad': None, 'G_optimizer_reuse': True, 'G_scheduler_type': 'MultiStepLR', 'G_scheduler_milestones': [250000, 400000, 450000, 475000, 500000], 'G_scheduler_gamma': 0.5, 'G_regularizer_orthstep': None, 'G_regularizer_clipstep': None, 'G_param_strict': True, 'E_param_strict': True, 'checkpoint_test': 5000, 'checkpoint_save': 5000, 'checkpoint_print': 200, 'manual_seed': 0, 'F_feature_layer': 34, 'F_weights': 1.0, 'F_lossfn_type': 'l1', 'F_use_input_norm': True, 'F_use_range_norm': False, 'G_optimizer_betas': [0.9, 0.999], 'G_scheduler_restart_weights': 1}, 'opt_path': 'options/swinir/prod.json', 'is_train': True, 'merge_bn': False, 'merge_bn_startpoint': -1, 'find_unused_parameters': False, 'use_static_graph': False, 'num_gpu': 1}
+Model Path :  /content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/18300_G.pth
+Loading model for G [/content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/18300_G.pth] ...
+Loading with definition from /content/drive/MyDrive/superresolution/swinir_sr_lightweight_x2/models/18300_G.pth
+
+================================================================================
+ BENCHMARK EVALUATION (Scale: x2)
+================================================================================
+Dataset         PSNR (dB)       SSIM            Time (s/img)   
+------------------------------------------------------------
+Evaluating on dataset {'name': 'BSDS100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/BSDS100/HR', 'dataroot_L': '/content/TEST_SETS/BSDS100/x2'}
+Dataset [DatasetSR - BSDS100] is created.
+Processing BSDS100 (100 images)...
+BSDS100         30.8618         0.9020          0.2497         
+Evaluating on dataset {'name': 'Set14', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set14/HR', 'dataroot_L': '/content/TEST_SETS/Set14/x2'}
+Dataset [DatasetSR - Set14] is created.
+Processing Set14 (14 images)...
+Set14           31.6401         0.9057          0.2948         
+Evaluating on dataset {'name': 'Set5', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set5/HR', 'dataroot_L': '/content/TEST_SETS/Set5/x2'}
+Dataset [DatasetSR - Set5] is created.
+Processing Set5 (5 images)...
+Set5            35.8233         0.9503          0.1567         
+Evaluating on dataset {'name': 'manga109', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/manga109/HR', 'dataroot_L': '/content/TEST_SETS/manga109/x2'}
+Dataset [DatasetSR - manga109] is created.
+Processing manga109 (109 images)...
+manga109        36.3881         0.9695          1.4632         
+Evaluating on dataset {'name': 'urban100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/urban100/HR', 'dataroot_L': '/content/TEST_SETS/urban100/x2'}
+Dataset [DatasetSR - urban100] is created.
+Processing urban100 (100 images)...
+urban100        30.6971         0.9273          1.1393         
+================================================================================
+
+
+
+L1
+
+
+
+================================================================================
+ BENCHMARK EVALUATION (Scale: x2)
+================================================================================
+Dataset         PSNR (dB)       SSIM            Time (s/img)   
+------------------------------------------------------------
+Evaluating on dataset {'name': 'BSDS100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/BSDS100/HR', 'dataroot_L': '/content/TEST_SETS/BSDS100/x2'}
+Dataset [DatasetSR - BSDS100] is created.
+Processing BSDS100 (100 images)...
+BSDS100         30.8550         0.9017          0.2775         
+Evaluating on dataset {'name': 'Set14', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set14/HR', 'dataroot_L': '/content/TEST_SETS/Set14/x2'}
+Dataset [DatasetSR - Set14] is created.
+Processing Set14 (14 images)...
+Set14           31.6249         0.9051          0.2747         
+Evaluating on dataset {'name': 'Set5', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/Set5/HR', 'dataroot_L': '/content/TEST_SETS/Set5/x2'}
+Dataset [DatasetSR - Set5] is created.
+Processing Set5 (5 images)...
+Set5            35.7852         0.9502          0.1505         
+Evaluating on dataset {'name': 'manga109', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/manga109/HR', 'dataroot_L': '/content/TEST_SETS/manga109/x2'}
+Dataset [DatasetSR - manga109] is created.
+Processing manga109 (109 images)...
+manga109        36.3884         0.9697          1.4989         
+Evaluating on dataset {'name': 'urban100', 'dataset_type': 'sr', 'dataroot_H': '/content/TEST_SETS/urban100/HR', 'dataroot_L': '/content/TEST_SETS/urban100/x2'}
+Dataset [DatasetSR - urban100] is created.
+Processing urban100 (100 images)...
+urban100        30.7121         0.9270          1.1752         
+================================================================================

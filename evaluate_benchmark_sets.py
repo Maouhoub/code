@@ -13,6 +13,8 @@ from models.select_model import define_Model
 from data.select_dataset import define_Dataset
 from torch.utils.data import DataLoader
 
+from main_train_psnr_L2_fine_tune_structured_enhanced import calculate_model_stats
+
 def calculate_ssim(img1, img2):
     """Calculate SSIM between two images."""
     try:
@@ -123,6 +125,10 @@ def main(json_path='options/swinir/prod.json'):
     # ----------------------------------------
     model = define_Model(opt)
     model.init_train() # This loads the weights defined in opt['path']['pretrained_netG']
+
+    model_network = model.netG if hasattr(model, 'netG') else model
+    device = next(model.parameters()).device
+    model_stats = calculate_model_stats(model_network, input_shape=(3, 64, 64), device=device)
     
     # ----------------------------------------
     # 4. Define Test Sets
@@ -169,6 +175,9 @@ def main(json_path='options/swinir/prod.json'):
     print("\n" + "="*80)
     print(f" BENCHMARK EVALUATION (Scale: x{opt['scale']})")
     print("="*80)
+    print(f"Parameters: {model_stats['total_params']:,}")
+    print(f"FLOPs: {model_stats['flops']:,}")
+    print("-"*60)
     print(f"{'Dataset':<15} {'PSNR (dB)':<15} {'SSIM':<15} {'Time (s/img)':<15}")
     print("-"*60)
     
