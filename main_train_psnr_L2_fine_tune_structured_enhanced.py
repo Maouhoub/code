@@ -411,6 +411,10 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         # Define importance metric for channel ranking
         if importance_type == 'taylor':
             imp = tp.importance.GroupTaylorImportance(group_reduction='mean')
+        elif importance_type == 'lamp':
+            # Layer-adaptive magnitude pruning (Lee et al., ICLR 2021) used as a
+            # published comparison criterion under an otherwise identical pipeline.
+            imp = tp.importance.LAMPImportance(p=2, group_reduction='mean')
         else:
             imp = tp.importance.MagnitudeImportance(p=2)
 
@@ -904,6 +908,12 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     max_eval_images = int(structured_opt.get('max_eval_images', 22))
     full_eval_images = int(structured_opt.get('full_eval_images', 100))
     pruning_importance_type = str(structured_opt.get('importance_type', 'magnitude')).lower()
+    supported_importance_types = ('magnitude', 'taylor', 'lamp')
+    if pruning_importance_type not in supported_importance_types:
+        raise ValueError(
+            f"Unsupported importance_type: {pruning_importance_type}. "
+            f"Expected one of {supported_importance_types}."
+        )
     taylor_grad_batches = int(structured_opt.get('taylor_grad_batches', 2))
     taylor_detail_weight = float(structured_opt.get('taylor_detail_weight', 0.0) or 0.0)
     taylor_detail_type = str(structured_opt.get('taylor_detail_type', 'none')).lower()
