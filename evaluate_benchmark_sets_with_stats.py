@@ -100,64 +100,97 @@ def calculate_ssim(img1, img2):
         return 0.0
 
 
-def evaluate_model_on_dataset(model, dataset_opt, opt):
+def _sync():
+    """Block until all queued CUDA work has finished, so timings are not truncated."""
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+
+def evaluate_model_on_dataset(model, dataset_opt, opt, repeats=1, warmup=3):
     """
     Evaluates the model on a specific dataset definition.
+
+    PSNR/SSIM are deterministic for a fixed checkpoint, so they are computed once
+    on the first timed pass. Per-image inference time is measured over `repeats`
+    independent passes so that a mean and standard deviation can be reported.
+
+    The timed region covers feed_data + test, matching the original measurement
+    definition. A warmup pass is run first and is excluded from all statistics, so
+    CUDA context setup and cuDNN autotuning do not inflate the first pass.
+
+    Returns (psnr, ssim, mean_time, std_time, per_repeat_times).
     """
-    # 1. Create Dataset and Dataloader
+    # 1. Create Dataset and Dataloader (built once and reused across repeats)
     test_set = define_Dataset(dataset_opt)
     test_loader = DataLoader(test_set, batch_size=1, shuffle=False, num_workers=1, drop_last=False, pin_memory=True)
 
-    avg_psnr = 0.0
-    avg_ssim = 0.0
-    avg_time = 0.0
-    idx = 0
     border = opt['scale']
 
     # Ensure model is in eval mode
     model_network = model.netG if hasattr(model, 'netG') else model
     model_network.eval()
 
-    print(f"Processing {dataset_opt['name']} ({len(test_set)} images)...")
+    if len(test_set) == 0:
+        return 0.0, 0.0, 0.0, 0.0, []
 
-    # Warmup
-    if idx == 0 and len(test_set) > 0:
-        pass
+    print(f"Processing {dataset_opt['name']} ({len(test_set)} images, {repeats} timed pass(es))...")
+
+    avg_psnr = 0.0
+    avg_ssim = 0.0
+    per_repeat_times = []
 
     with torch.no_grad():
-        for test_data in test_loader:
-            idx += 1
-            image_name_ext = os.path.basename(test_data['L_path'][0])
+        # Warmup: excluded from timing, absorbs CUDA init and cuDNN autotuning cost.
+        if warmup > 0:
+            for w_idx, test_data in enumerate(test_loader):
+                if w_idx >= warmup:
+                    break
+                model.feed_data(test_data)
+                model.test()
+            _sync()
 
-            # 2. Inference
-            start = time.time()
-            model.feed_data(test_data)
-            model.test()
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            end = time.time()
-            avg_time += (end - start)
+        for repeat in range(repeats):
+            total_time = 0.0
+            idx = 0
+            collect_metrics = (repeat == 0)
 
-            # 3. Get Visuals
-            visuals = model.current_visuals()
-            E_img = util.tensor2uint(visuals['E'])  # Estimated (Model Output)
-            H_img = util.tensor2uint(visuals['H'])  # High Res (Ground Truth)
+            for test_data in test_loader:
+                idx += 1
 
-            # 4. Calculate Metrics
-            current_psnr = util.calculate_psnr(E_img, H_img, border=border)
-            current_ssim = calculate_ssim(E_img, H_img)
+                # 2. Inference (timed)
+                _sync()
+                start = time.perf_counter()
+                model.feed_data(test_data)
+                model.test()
+                _sync()
+                end = time.perf_counter()
+                total_time += (end - start)
 
-            avg_psnr += current_psnr
-            avg_ssim += current_ssim
+                # 3. Metrics, computed once only (identical on every repeat)
+                if collect_metrics:
+                    visuals = model.current_visuals()
+                    E_img = util.tensor2uint(visuals['E'])  # Estimated (Model Output)
+                    H_img = util.tensor2uint(visuals['H'])  # High Res (Ground Truth)
 
-    if idx == 0:
-        return 0.0, 0.0, 0.0
+                    avg_psnr += util.calculate_psnr(E_img, H_img, border=border)
+                    avg_ssim += calculate_ssim(E_img, H_img)
 
-    avg_psnr = avg_psnr / idx
-    avg_ssim = avg_ssim / idx
-    avg_time = avg_time / idx
+            if idx == 0:
+                return 0.0, 0.0, 0.0, 0.0, []
 
-    return avg_psnr, avg_ssim, avg_time
+            if collect_metrics:
+                avg_psnr = avg_psnr / idx
+                avg_ssim = avg_ssim / idx
+
+            repeat_time = total_time / idx
+            per_repeat_times.append(repeat_time)
+            print(f"  pass {repeat + 1}/{repeats}: {repeat_time:.4f} s/img")
+
+    mean_time = float(np.mean(per_repeat_times))
+    # Sample standard deviation (ddof=1); undefined for a single pass, reported as 0.
+    std_time = float(np.std(per_repeat_times, ddof=1)) if len(per_repeat_times) > 1 else 0.0
+
+    return avg_psnr, avg_ssim, mean_time, std_time, per_repeat_times
 
 
 
@@ -166,6 +199,12 @@ def main(json_path='options/swinir/prod.json'):
     parser.add_argument('--opt', type=str, default=json_path, help='Path to option JSON file.')
     parser.add_argument('--launcher', default='pytorch', help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--repeats', type=int, default=1,
+                        help='Number of timed passes per dataset. Use 5 to report mean +/- std.')
+    parser.add_argument('--warmup', type=int, default=3,
+                        help='Untimed warmup images per dataset, excluded from all statistics.')
+    parser.add_argument('--label', type=str, default='',
+                        help='Label printed in the final summary, e.g. Taylor / LAMP / Original.')
     args = parser.parse_args()
 
     # ----------------------------------------
@@ -270,8 +309,11 @@ def main(json_path='options/swinir/prod.json'):
     print("\n" + "=" * 80)
     print(f" BENCHMARK EVALUATION (Scale: x{opt['scale']})")
     print("=" * 80)
+    print(f"Timed passes per dataset: {args.repeats} (warmup: {args.warmup} images, excluded)")
     print(f"{'Dataset':<15} {'PSNR (dB)':<15} {'SSIM':<15} {'Time (s/img)':<15}")
     print("-" * 60)
+
+    collected = []
 
     for ds_opt in benchmark_datasets:
         # Validate paths exist before trying to load
@@ -287,11 +329,43 @@ def main(json_path='options/swinir/prod.json'):
         ds_opt['phase'] = 'test'
 
         try:
-            psnr, ssim, inf_time = evaluate_model_on_dataset(model, ds_opt, opt)
+            psnr, ssim, inf_time, std_time, per_repeat = evaluate_model_on_dataset(
+                model, ds_opt, opt, repeats=args.repeats, warmup=args.warmup
+            )
             print(f"{ds_opt['name']:<15} {psnr:<15.4f} {ssim:<15.4f} {inf_time:<15.4f}")
+            collected.append({
+                'name': ds_opt['name'],
+                'psnr': psnr,
+                'ssim': ssim,
+                'time': inf_time,
+                'std': std_time,
+                'per_repeat': per_repeat,
+            })
         except Exception as e:
             print(f"{ds_opt['name']:<15} [ERROR: {str(e)}]")
 
+    print("=" * 80)
+
+    # ----------------------------------------
+    # 6. Final Summary (paste-ready)
+    # ----------------------------------------
+    label = args.label or 'Model'
+    print("\n" + "=" * 80)
+    print(f" FINAL BENCHMARK SUMMARY [{label}]")
+    print("=" * 80)
+    print(f"Parameters: {stats['total_params']:,}")
+    print(f"FLOPs: {stats['flops']:,}")
+    print(f"Timed passes: {args.repeats} (warmup {args.warmup} images/dataset, excluded)")
+    print()
+    print("| Dataset  | PSNR (dB) | SSIM   | Time (s/img)      |")
+    print("|----------|-----------|--------|-------------------|")
+    for r in collected:
+        time_cell = f"{r['time']:.4f} +/- {r['std']:.4f}"
+        print(f"| {r['name']:<8} | {r['psnr']:<9.4f} | {r['ssim']:<6.4f} | {time_cell:<17} |")
+    print()
+    print("Per-pass times (s/img):")
+    for r in collected:
+        print(f"  {r['name']:<10} " + ", ".join(f"{t:.4f}" for t in r['per_repeat']))
     print("=" * 80)
 
 
