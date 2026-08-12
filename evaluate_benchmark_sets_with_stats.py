@@ -205,6 +205,10 @@ def main(json_path='options/swinir/prod.json'):
                         help='Untimed warmup images per dataset, excluded from all statistics.')
     parser.add_argument('--label', type=str, default='',
                         help='Label printed in the final summary, e.g. Taylor / LAMP / Original.')
+    parser.add_argument('--include-div2k', action='store_true',
+                        help='Also evaluate the DIV2K validation partition, i.e. the split the '
+                             'pruning loop uses for its termination check. Off by default because '
+                             'these are 2K images and slow to evaluate.')
     args = parser.parse_args()
 
     # ----------------------------------------
@@ -302,6 +306,16 @@ def main(json_path='options/swinir/prod.json'):
             "dataroot_L": "/content/TEST_SETS/urban100/x2",
         },
     ]
+
+    if args.include_div2k:
+        # Same partition the pruning loop evaluates for its termination check, so the
+        # benchmark result can be compared directly against the value in the training log.
+        benchmark_datasets.insert(0, {
+            "name": "DIV2K",
+            "dataset_type": "sr",
+            "dataroot_H": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_HR",
+            "dataroot_L": "/content/div2k-dataset-for-super-resolution/Dataset/DIV2K_valid_LR_bicubic/X2",
+        })
 
     # ----------------------------------------
     # 5. Run Evaluation Loop
