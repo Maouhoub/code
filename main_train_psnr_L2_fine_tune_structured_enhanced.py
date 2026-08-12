@@ -392,9 +392,15 @@ def validate_pixelshuffle_constraints(model, scale_factor=2):
 def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio_cap=0.25,
                                            native_layer_ratio_cap=0.2, importance_type='magnitude',
                                            prune_attention_heads=False, head_pruning_ratio=0.0,
-                                           prune_head_dims=False):
+                                           prune_head_dims=False, dependency_aware=True):
     """
     Apply structured channel pruning using Torch-Pruning library.
+
+    dependency_aware=False is an ablation switch. It removes the protection set and
+    the channel-group constraints, so channels are selected without regard to the
+    architectural couplings of the network. The resulting configuration is not
+    expected to remain valid; the failure mode is the quantity being measured, so
+    this path does not fall back to native pruning.
     """
     if not TORCH_PRUNING_AVAILABLE:
         print("Torch-Pruning not available, falling back to PyTorch native pruning")
@@ -533,7 +539,16 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
                 ignored_modules.add(module)
                 continue
 
-        ignored_layers = [m for m in ignored_modules if m not in prunable_modules]
+        if dependency_aware:
+            ignored_layers = [m for m in ignored_modules if m not in prunable_modules]
+        else:
+            # Ablation path: no protection set, no channel-group constraints.
+            ignored_layers = []
+            out_channel_groups = {}
+            print("[ABLATION] dependency_aware=False: protection set and channel-group "
+                  "constraints removed. Attention modules, patch embedding, the upsampler "
+                  "container, and the reconstruction output are all exposed to pruning, and "
+                  "channels are no longer selected in groups of scale^2.")
 
         if conv_prunable_names:
             print(f"Prunable Conv2d layers (output channels): {conv_prunable_names}")
@@ -607,6 +622,10 @@ def apply_structured_pruning_torch_pruning(model, pruning_ratio=0.1, layer_ratio
         print(f"Error with Torch-Pruning: {e}")
         print("Full stack trace:")
         traceback.print_exc()
+        if not dependency_aware:
+            print("[ABLATION] dependency_aware=False: no fallback is applied, because the "
+                  "failure of unconstrained pruning is the result being measured.")
+            raise
         print("SwinIR attention mechanism is complex for Torch-Pruning, falling back to PyTorch native pruning")
         return apply_structured_pruning_native(model, pruning_ratio, max_layer_ratio=native_layer_ratio_cap)
 
@@ -920,6 +939,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     prune_attention_heads = bool(structured_opt.get('prune_attention_heads', False))
     attention_head_pruning_ratio = float(structured_opt.get('attention_head_pruning_ratio', 0.0) or 0.0)
     prune_attention_head_dims = bool(structured_opt.get('prune_attention_head_dims', False))
+    dependency_aware = bool(structured_opt.get('dependency_aware', True))
 
     fine_tune_opt = opt.get('fine_tune', {}) or {}
     kd_enabled = bool(fine_tune_opt.get('kd_enabled', False))
@@ -1122,6 +1142,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     print(f"PSNR threshold: {target_psnr_threshold} dB")
     print(f"Layer ratio caps | Torch-Pruning: {max_layer_ratio:.2%}, Native: {native_max_layer_ratio:.2%}")
     print(f"Importance type: {pruning_importance_type}")
+    print(f"Dependency-aware handling: {'enabled' if dependency_aware else 'DISABLED (ablation)'}")
     if pruning_importance_type == 'taylor':
         print(f"Taylor gradient batches: {taylor_grad_batches}")
         if taylor_detail_weight > 0:
@@ -1158,6 +1179,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         'prune_attention_heads': prune_attention_heads,
         'attention_head_pruning_ratio': attention_head_pruning_ratio,
         'prune_attention_head_dims': prune_attention_head_dims,
+        'dependency_aware': dependency_aware,
         'kd_enabled': kd_enabled,
         'kd_weight': kd_weight,
         'kd_loss_type': kd_loss_type,
@@ -1209,6 +1231,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
                 prune_attention_heads=prune_attention_heads,
                 head_pruning_ratio=attention_head_pruning_ratio,
                 prune_head_dims=prune_attention_head_dims,
+                dependency_aware=dependency_aware,
             )
         else:
             network = apply_structured_pruning_native(
@@ -1225,7 +1248,35 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
         scale_factor = opt.get('scale', 2)  # Default to 2x upscaling
         if not validate_pixelshuffle_constraints(network, scale_factor):
             print("  PixelShuffle constraints violated! Model may not work correctly.")
-        
+
+        # Structural validity probe: one forward pass on a dummy input. This reports the
+        # output channel count and surfaces shape errors introduced by pruning at the
+        # iteration where they occur, rather than later during evaluation.
+        probe_was_training = network.training
+        probe_failure = None
+        try:
+            probe_device = next(network.parameters()).device
+            network.eval()
+            with torch.no_grad():
+                probe_output = network(torch.randn(1, 3, 64, 64, device=probe_device))
+            print(f"Structural probe: output shape {tuple(probe_output.shape)}")
+            if probe_output.shape[1] != 3:
+                probe_failure = f"expected 3 output channels, got {probe_output.shape[1]}"
+                print(f"  Structural probe FAILED: {probe_failure}")
+        except Exception as probe_error:
+            probe_failure = str(probe_error)
+            print(f"  Structural probe FAILED with an exception: {probe_error}")
+            traceback.print_exc()
+        finally:
+            if probe_was_training:
+                network.train()
+
+        if probe_failure is not None and not dependency_aware:
+            raise RuntimeError(
+                f"[ABLATION] Unconstrained pruning produced an invalid network at iteration "
+                f"{pruning_iteration}: {probe_failure}"
+            )
+
         print("? Structured pruning applied successfully")
 
         current_params, _ = count_parameters(network)
