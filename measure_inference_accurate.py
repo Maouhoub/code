@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 import torch
 import numpy as np
@@ -66,15 +67,28 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--dist', default=False)
     parser.add_argument('--with_definition', default=False)
+    # Force CPU execution. This has to be applied after option.parse, because parse
+    # iterates gpu_ids and rewrites CUDA_VISIBLE_DEVICES from it; clearing gpu_ids in
+    # the option file itself therefore fails before the model is ever constructed.
+    parser.add_argument('--cpu', action='store_true',
+                        help='Run on CPU regardless of GPU availability.')
+    parser.add_argument('--runs', type=int, default=2000,
+                        help='Timed iterations. Lower it for CPU runs if 2000 is too slow.')
+    parser.add_argument('--warmup', type=int, default=50, help='Untimed warm-up iterations.')
 
 
     args = parser.parse_args()
-    
+
     print("Effective Options file used is : ", args.opt)
-    
+
     opt = option.parse(args.opt, is_train=True)
     opt['dist'] = args.dist
     opt["train"]["with_definition"] = args.with_definition
+    if args.cpu:
+        # model_base selects the device with `'cuda' if opt['gpu_ids'] is not None`,
+        # so an empty list is not sufficient here; it must be None.
+        opt['gpu_ids'] = None
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
     print("OPTS ", opt)
 
     if opt['dist']:
@@ -106,13 +120,18 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight_structured_prunin
     model = define_Model(opt)
     model.init_train()
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
+    if args.cpu:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Benchmark device: {device} | threads: {torch.get_num_threads()}")
+
     # ----------------------------------------
     # Benchmark "Pure Compute"
     # ----------------------------------------
     # Removes DataLoader overhead completely for measuring model speedups
-    benchmark_pure_compute(model, input_size=(args.bs, 3, args.size, args.size), device=device)
+    benchmark_pure_compute(model, input_size=(args.bs, 3, args.size, args.size), device=device,
+                           num_warmup=args.warmup, num_runs=args.runs)
 
 if __name__ == '__main__':
     main()
