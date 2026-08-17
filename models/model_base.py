@@ -162,7 +162,12 @@ class ModelBase():
     def load_network(self, load_path, network, strict=True, param_key='params', with_definition = False):
         if with_definition:
             print("Loading with definition from", load_path)
-            network = torch.load(load_path, weights_only=False)
+            # map_location is required because a checkpoint saved as a pickled module
+            # carries the device of the process that wrote it. Without it, a checkpoint
+            # written on GPU cannot be loaded for CPU-only inference. self.device is
+            # already the device this model is configured for, so this is a no-op when
+            # loading a GPU checkpoint for GPU use.
+            network = torch.load(load_path, weights_only=False, map_location=self.device)
             return network
         else:
             network = self.get_bare_model(network)
